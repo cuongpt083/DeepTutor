@@ -43,8 +43,11 @@ services:
     container_name: deeptutor
     restart: unless-stopped
     ports:
-      - "${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}"
-      - "${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}:${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}"
+      - "0.0.0.0:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}:${DEEPTUTOR_DOCKER_BACKEND_PORT:-8001}"
+      - "0.0.0.0:${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}:${DEEPTUTOR_DOCKER_FRONTEND_PORT:-3782}"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     volumes:
       # Persist every workspace and deployment secret across recreation.

@@ -92,11 +92,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Add Rust to PATH
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+# Optional build argument to install RAG LightRAG (raganything)
+# Enabled by default so HKUDS/RAG-Anything (LightRAG) is available out of the box
+ARG INSTALL_RAG_LIGHTRAG=true
+
 # Copy requirements and install Python dependencies
 COPY requirements/ ./requirements/
 COPY requirements.txt ./
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt && \
+    if [ "$INSTALL_RAG_LIGHTRAG" = "true" ]; then \
+        pip install -r requirements/rag-lightrag.txt; \
+    fi
 
 # ============================================
 # Stage 3: Production Image

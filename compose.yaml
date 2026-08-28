@@ -135,15 +135,15 @@ services:
     #                 PYTHONDONTWRITEBYTECODE=1, but be safe)
     #   /home       — same, for any non-root code path
     tmpfs:
-      - /tmp:size=512m,mode=1777
+      - /tmp:size=5120m,mode=1777
       - /run:size=32m,mode=0755
       - /var/run:size=8m,mode=0755
-      - /var/log:size=64m,mode=0755
-      - /root:size=16m,mode=0700
-      - /home:size=16m,mode=0755
+      - /var/log:size=640m,mode=0755
+      - /root:size=1600m,mode=0700
+    #  - /home:size=1600m,mode=1777
     ports:
       - "127.0.0.1:${HOST_PORT_BACKEND:-8001}:8001"
-      - "127.0.0.1:${HOST_PORT_FRONTEND:-3782}:3782"
+      - "${HOST_PORT_FRONTEND:-3782}:3782"
     volumes:
       # Bind mount a host directory so the host user (UID $UID) owns
       # the entire data tree. With userns_mode: keep-id the process
@@ -155,9 +155,11 @@ services:
       # (data/partners), accounts/grants/audit (data/system),
       # knowledge bases, memory, logs. One tree to back up.
       - ./data:/app/data:U
+      - ./data/home:/home:U
     environment:
       # Time zone — picked up by Python (time.tzset) and Next.js at boot.
-      - TZ=${TZ:-UTC}
+      - TZ=${TZ:-GMT+7}
+      - PYTHONPATH=/app:/home/deeptutor/.local/lib/python3.11/site-packages
       # Local LLM (LM Studio / Ollama / vLLM) base URLs in
       # data/user/settings/model_catalog.json should use
       # `http://host.containers.internal:PORT` (podman) — NOT localhost,
