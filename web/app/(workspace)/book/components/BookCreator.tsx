@@ -53,6 +53,7 @@ const BOOK_LANGUAGES: Array<{ code: string; label: string }> = [
   { code: "en", label: "English" },
   { code: "zh", label: "简体中文" },
   { code: "zh-tw", label: "繁體中文" },
+  { code: "vi", label: "Tiếng Việt" },
   { code: "ja", label: "日本語" },
   { code: "ko", label: "한국어" },
   { code: "es", label: "Español" },

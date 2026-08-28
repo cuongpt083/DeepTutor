@@ -12,6 +12,8 @@ _LANGUAGE_LABELS: dict[str, str] = {
     "zh-cn": "中文（简体）",
     "zh-tw": "繁體中文",
     "en": "English",
+    "vi": "Tiếng Việt",
+    "auto": "Auto",
     "ja": "日本語",
     "ko": "한국어",
     "es": "Español",
@@ -24,7 +26,10 @@ _LANGUAGE_LABELS: dict[str, str] = {
 
 
 def normalize_language(language: str | None) -> str:
-    return (language or "en").strip().lower() or "en"
+    raw = (language or "").strip().lower()
+    if not raw or raw in ("auto", "none"):
+        return "auto"
+    return raw
 
 
 def language_label(language: str | None) -> str:
@@ -38,6 +43,16 @@ def language_label(language: str | None) -> str:
 def language_directive(language: str | None) -> str:
     """Return a strict reader-facing language instruction for prompts."""
     code = normalize_language(language)
+    if code == "auto":
+        return (
+            "\n\n[Language] Respond in the same language as the user's prompt "
+            "(e.g., if the user asks in Vietnamese, reply in Vietnamese; if in "
+            "English, reply in English; if in Chinese, reply in Chinese). "
+            "Maintain this language throughout the response even if reference "
+            "materials, knowledge base context, JSON keys, or examples in this "
+            "prompt are in another language. Keep proper nouns (people, products, "
+            "formula symbols) in their original form."
+        )
     label = language_label(code)
     if code.startswith("zh"):
         return (
@@ -46,6 +61,16 @@ def language_directive(language: str | None) -> str:
             "题干、选项等），即使参考资料、JSON 字段名或英文术语出现在 prompt 中也"
             "不得切换语言；保留必要的专有名词原文（如人名、产品名、公式中的变量符号"
             f"等）即可，其余一律使用{label}。"
+        )
+    if code == "vi":
+        return (
+            "\n\n[Language / Ngôn ngữ] "
+            f"Hãy sử dụng {label} cho toàn bộ nội dung phản hồi tới người đọc "
+            "(tiêu đề, bài viết, giải thích, gợi ý, câu hỏi, lựa chọn, v.v.). "
+            "KHÔNG ĐƯỢC tự ý đổi ngôn ngữ ngay cả khi tài liệu tham khảo, dữ liệu "
+            "context hoặc từ khóa JSON xuất hiện bằng ngôn ngữ khác; giữ nguyên các "
+            "danh từ riêng, thuật ngữ kỹ thuật cần thiết (như tên riêng, sản phẩm, "
+            f"ký hiệu công thức), còn lại toàn bộ trình bày bằng {label}."
         )
     if code == "en":
         return (

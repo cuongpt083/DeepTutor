@@ -1,6 +1,7 @@
 "use client";
 
 export type AppLanguage = "en" | "zh";
+export type ResponseLanguage = "auto" | "vi" | "en" | "zh";
 
 export const ACTIVE_SESSION_STORAGE_KEY = "deeptutor.activeSessionId.tab";
 export const LANGUAGE_STORAGE_KEY = "deeptutor-language";
@@ -69,11 +70,15 @@ export function normalizeLanguage(
 
 export function resolveResponseLanguage(
   value: string | null | undefined,
-  legacyLanguage: string | null | undefined = "en",
-): AppLanguage {
-  return value === "zh" || value === "en"
-    ? value
-    : normalizeLanguage(legacyLanguage);
+  legacyLanguage: string | null | undefined = "auto",
+): ResponseLanguage {
+  if (value === "auto" || value === "vi" || value === "en" || value === "zh") {
+    return value;
+  }
+  if (legacyLanguage === "zh") return "zh";
+  if (legacyLanguage === "vi") return "vi";
+  if (legacyLanguage === "en") return "en";
+  return "auto";
 }
 
 export function readStoredLanguage(): AppLanguage {
@@ -115,19 +120,19 @@ export function writeStoredLanguage(language: AppLanguage): void {
   }
 }
 
-export function readStoredResponseLanguage(): AppLanguage {
-  if (typeof window === "undefined") return "en";
+export function readStoredResponseLanguage(): ResponseLanguage {
+  if (typeof window === "undefined") return "auto";
   try {
     return resolveResponseLanguage(
       window.localStorage.getItem(RESPONSE_LANGUAGE_STORAGE_KEY),
       window.localStorage.getItem(LANGUAGE_STORAGE_KEY),
     );
   } catch {
-    return "en";
+    return "auto";
   }
 }
 
-export function writeStoredResponseLanguage(language: AppLanguage): void {
+export function writeStoredResponseLanguage(language: ResponseLanguage): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(RESPONSE_LANGUAGE_STORAGE_KEY, language);

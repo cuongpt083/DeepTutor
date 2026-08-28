@@ -1864,7 +1864,7 @@ class TurnRuntimeManager:
                 knowledge_bases=payload.get("knowledge_bases", []),
                 attachments=attachments,
                 config_overrides=request_config,
-                language=payload.get("language", "en"),
+                language=payload.get("language") or "auto",
                 memory_context=memory_context,
                 persona_context=persona_context,
                 skills_manifest=skills_manifest,

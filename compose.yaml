@@ -95,7 +95,7 @@ services:
       - ./data/pocketbase/public:/pb_public:U
       - ./data/pocketbase/hooks:/pb_hooks:U
     networks:
-      - deeptutor
+      - study
     healthcheck:
       test:
         - CMD
@@ -118,9 +118,13 @@ services:
   # the supervisord children's environment, so changing ports/auth/providers
   # means editing JSONs + `podman compose restart`.
   deeptutor:
-    image: ghcr.io/hkuds/deeptutor:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: deeptutor:local
     container_name: deeptutor
-    pull_policy: always
+    pull_policy: build
     restart: unless-stopped
     userns_mode: keep-id
     read_only: true
@@ -167,6 +171,8 @@ services:
       # Uncomment to enable PocketBase auth (also set integrations.json):
       #   - POCKETBASE_URL=http://pocketbase:8090
       #   - POCKETBASE_EXTERNAL_URL=http://localhost:8090
+    env_file:
+      - .env
     healthcheck:
       test:
         - CMD
@@ -181,7 +187,7 @@ services:
       pocketbase:
         condition: service_healthy
     networks:
-      - deeptutor
+      - study
     # Optional hardening — uncomment to taste. supervisord runs as root
     # (PID 1) and setuids each program down to UID 1000, which needs
     # CAP_SETUID/CAP_SETGID — so do NOT `cap_drop: ALL` here, it would stop
@@ -198,8 +204,8 @@ services:
     # cpus: 4.0
 
 networks:
-  deeptutor:
-    driver: bridge
+  study:
+    external: true 
 
 # Named volumes intentionally not used: with userns_mode: keep-id the
 # container process runs as the host user (UID $UID), but podman

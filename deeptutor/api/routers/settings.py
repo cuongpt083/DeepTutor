@@ -122,7 +122,7 @@ class SidebarNavOrder(BaseModel):
 class UISettings(BaseModel):
     theme: Literal["light", "dark", "glass", "snow"] = "snow"
     language: Literal["zh", "en"] = "en"
-    response_language: Literal["zh", "en"] = "en"
+    response_language: Literal["zh", "en", "vi", "auto"] = "en"
     sidebar_description: Optional[str] = None
     sidebar_nav_order: Optional[SidebarNavOrder] = None
     code_block_theme: Optional[str] = None
@@ -145,7 +145,7 @@ class UISettingsUpdate(BaseModel):
     # so PUT /ui cannot persist a theme/language the app can't render.
     theme: Literal["light", "dark", "glass", "snow"] | None = None
     language: Literal["zh", "en"] | None = None
-    response_language: Literal["zh", "en"] | None = None
+    response_language: Literal["zh", "en", "vi", "auto"] | None = None
     sidebar_description: str | None = None
     sidebar_nav_order: SidebarNavOrder | None = None
     code_block_theme: str | None = None

@@ -42,15 +42,21 @@ def test_agentic_chat_final_prompt_uses_selected_language(
     ctx = UnifiedContext()
     zh_prompt = AgenticChatPipeline(language="zh")._build_system_prompt([], ctx)
     en_prompt = AgenticChatPipeline(language="en")._build_system_prompt([], ctx)
+    vi_prompt = AgenticChatPipeline(language="vi")._build_system_prompt([], ctx)
+    auto_prompt = AgenticChatPipeline(language="auto")._build_system_prompt([], ctx)
 
     # Prompt blocks are phase-specific, but the shared language directive
     # still runs at the end, so per-language imperatives must surface.
     assert "请严格使用中文" in zh_prompt
     assert "Write ALL reader-facing text" in en_prompt
+    assert "Tiếng Việt" in vi_prompt
+    assert "Respond in the same language as the user's prompt" in auto_prompt
     # Persona phrasing differs by language so the prompts are not just
     # English text with a Chinese tail appended.
     assert "你是 DeepTutor" in zh_prompt
     assert "You are DeepTutor" in en_prompt
+    assert "You are DeepTutor" in vi_prompt
+    assert "You are DeepTutor" in auto_prompt
 
 
 def test_mastery_plugin_system_prompt_uses_localized_fallback(
@@ -121,3 +127,21 @@ def test_prompt_blocks_include_localized_optional_context() -> None:
     assert "workspace" in names
     assert assembler.user_message(context=ctx) == "用户说：解释光合作用"
     assert assembler.finish_exhausted_instruction() == "预算已用完，请直接回答。"
+
+
+def test_language_directive_vi_and_auto() -> None:
+    from deeptutor.services.prompt.language import language_directive, language_label, normalize_language
+
+    assert language_label("vi") == "Tiếng Việt"
+    assert normalize_language("vi") == "vi"
+    assert normalize_language("auto") == "auto"
+
+    vi_directive = language_directive("vi")
+    assert "Tiếng Việt" in vi_directive
+    assert "KHÔNG ĐƯỢC" in vi_directive or "không được" in vi_directive.lower()
+
+    auto_directive = language_directive("auto")
+    assert "same language as the user's prompt" in auto_directive
+    assert language_directive(None) == auto_directive
+    assert language_directive("") == auto_directive
+

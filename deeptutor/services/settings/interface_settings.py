@@ -57,6 +57,8 @@ def _normalize_language(language: Any, default: str = "en") -> str:
     Normalize language codes:
     - en/english -> en
     - zh/chinese/cn -> zh
+    - vi/vietnamese -> vi
+    - auto -> auto
     """
     if language is None or language == "":
         language = default
@@ -67,6 +69,12 @@ def _normalize_language(language: Any, default: str = "en") -> str:
             return "en"
         if s in {"zh", "chinese", "cn"}:
             return "zh"
+        if s in {"vi", "vietnamese"}:
+            return "vi"
+        if s in {"auto"}:
+            return "auto"
+        if s in {"ja", "ko", "es", "fr", "de", "ru", "pt", "it"}:
+            return s
 
     # Fall back to default
     if isinstance(default, str):
