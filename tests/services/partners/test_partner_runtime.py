@@ -754,3 +754,22 @@ class TestPartnerCommands:
 
         assert "Started a new conversation" in reply
         assert len(fake_orchestrator.seen_contexts) == 1
+
+    @pytest.mark.asyncio
+    async def test_language_resolution_supports_vi_and_auto(self, partners_root, fake_orchestrator):
+        fake_orchestrator.script = finish("ok")
+
+        # 1. Partner configured with language="vi"
+        runner_vi = _runner(partners_root, config=PartnerConfig(name="Ada", language="vi"))
+        await runner_vi.process_message(_msg("xin chào"))
+        assert fake_orchestrator.seen_contexts[-1].language == "vi"
+
+        # 2. Partner configured with language="" or "auto"
+        runner_auto = _runner(partners_root, config=PartnerConfig(name="Ada", language="auto"))
+        await runner_auto.process_message(_msg("xin chào"))
+        assert fake_orchestrator.seen_contexts[-1].language == "auto"
+
+        # 3. Partner configured with language="en"
+        runner_en = _runner(partners_root, config=PartnerConfig(name="Ada", language="en"))
+        await runner_en.process_message(_msg("hello"))
+        assert fake_orchestrator.seen_contexts[-1].language == "en"

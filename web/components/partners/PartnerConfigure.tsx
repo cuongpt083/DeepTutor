@@ -337,7 +337,8 @@ export default function PartnerConfigure({
               onChange={(e) => setLanguage(e.target.value)}
               className="w-full rounded-lg border border-[var(--border)] bg-transparent px-3 py-1.5 text-[13px] outline-none focus:border-[var(--ring)]"
             >
-              <option value="">{t("Auto (English)")}</option>
+              <option value="">{t("language.auto") || "Auto"}</option>
+              <option value="vi">Tiếng Việt</option>
               <option value="en">English</option>
               <option value="zh">中文</option>
             </select>

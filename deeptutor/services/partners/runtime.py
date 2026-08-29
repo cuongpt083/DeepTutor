@@ -588,7 +588,11 @@ class PartnerRunner:
 
     def _language(self) -> str:
         lang = str(getattr(self.config, "language", "") or "").strip().lower()
-        return "zh" if lang.startswith("zh") else "en"
+        if not lang or lang in ("auto", "none"):
+            return "auto"
+        from deeptutor.services.prompt.language import normalize_language
+
+        return normalize_language(lang)
 
     def _channel_delivery_flag(self, channel_name: str, name: str, *, default: bool) -> bool:
         channels = getattr(self.config, "channels", None) or {}

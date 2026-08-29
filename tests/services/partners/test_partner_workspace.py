@@ -142,6 +142,45 @@ class TestProvisioning:
         assert report["errors"] == []
         assert report["copied"]["knowledge_bases"] == ["physics"]
 
+    def test_provision_connected_or_server_kb(self, partners_root):
+        admin_root = partners_root.parent
+        kb_config_path = admin_root / "knowledge_bases" / "kb_config.json"
+        kb_config_path.parent.mkdir(parents=True, exist_ok=True)
+        kb_config_path.write_text(
+            json.dumps(
+                {
+                    "knowledge_bases": {
+                        "Marketing-Content": {
+                            "path": "Marketing-Content",
+                            "type": "lightrag_server",
+                            "rag_provider": "lightrag-server",
+                            "server_url": "http://lightrag:9621",
+                            "api_key": "secret-key",
+                            "status": "ready",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        report = provision_assets("ada", knowledge_bases=["Marketing-Content"])
+        assert report["errors"] == []
+        assert report["copied"]["knowledge_bases"] == ["Marketing-Content"]
+
+        ws = partners_root / "ada" / "workspace"
+        partner_cfg_file = ws / "knowledge_bases" / "kb_config.json"
+        assert partner_cfg_file.exists()
+        saved = json.loads(partner_cfg_file.read_text(encoding="utf-8"))
+        assert "Marketing-Content" in saved.get("knowledge_bases", {})
+        assert saved["knowledge_bases"]["Marketing-Content"]["server_url"] == "http://lightrag:9621"
+
+        assets = list_assets("ada")
+        assert any(kb["name"] == "Marketing-Content" for kb in assets["knowledge_bases"])
+
+        assert remove_asset("ada", "knowledge_base", "Marketing-Content") is True
+        assets_after = list_assets("ada")
+        assert not any(kb["name"] == "Marketing-Content" for kb in assets_after["knowledge_bases"])
+
 
 class TestInventoryAndRemoval:
     def test_list_and_remove(self, partners_root):

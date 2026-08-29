@@ -257,6 +257,11 @@ class RAGService:
                     except RuntimeError:
                         if target_loop and target_loop.is_running():
                             asyncio.run_coroutine_threadsafe(result, target_loop)
+                        else:
+                            try:
+                                result.close()
+                            except Exception:
+                                pass
                         return
                     asyncio.ensure_future(result, loop=loop)
                 except Exception:

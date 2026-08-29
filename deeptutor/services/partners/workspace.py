@@ -165,13 +165,47 @@ def _copy_knowledge_base(kb_ref: str, partner_root: Path) -> str:
     from deeptutor.multi_user.knowledge_access import resolve_kb
 
     resource = resolve_kb(kb_ref)
-    src = Path(resource.base_dir) / resource.name
-    if not src.is_dir():
-        raise FileNotFoundError(f"Knowledge base directory missing: {resource.name}")
-    dst = partner_root / "knowledge_bases" / resource.name
-    if dst.exists():
-        return resource.name  # already provisioned
-    shutil.copytree(src, dst)
+    src_base_dir = Path(resource.base_dir)
+    src_dir = src_base_dir / resource.name
+
+    # 1. Look up config entry from source kb_config.json
+    src_config_file = src_base_dir / "kb_config.json"
+    kb_entry = None
+    if src_config_file.exists():
+        try:
+            cfg = json.loads(src_config_file.read_text(encoding="utf-8"))
+            kb_entry = cfg.get("knowledge_bases", {}).get(resource.name)
+        except Exception:
+            pass
+
+    # 2. Check if source exists either as an on-disk directory or in kb_config.json
+    if not src_dir.is_dir() and kb_entry is None:
+        raise FileNotFoundError(f"Knowledge base missing: {resource.name}")
+
+    # 3. If on-disk directory exists, copy directory
+    dst_dir = partner_root / "knowledge_bases" / resource.name
+    if src_dir.is_dir() and not dst_dir.exists():
+        dst_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src_dir, dst_dir)
+
+    # 4. If kb_entry exists in source kb_config.json, merge into partner's kb_config.json
+    if kb_entry is not None:
+        dst_kb_root = partner_root / "knowledge_bases"
+        dst_kb_root.mkdir(parents=True, exist_ok=True)
+        dst_config_file = dst_kb_root / "kb_config.json"
+        dst_config: dict[str, Any] = {"knowledge_bases": {}}
+        if dst_config_file.exists():
+            try:
+                loaded = json.loads(dst_config_file.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict) and isinstance(loaded.get("knowledge_bases"), dict):
+                    dst_config = loaded
+            except Exception:
+                pass
+        dst_config.setdefault("knowledge_bases", {})[resource.name] = dict(kb_entry)
+        dst_config_file.write_text(
+            json.dumps(dst_config, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
     return resource.name
 
 
@@ -287,8 +321,26 @@ def list_assets(partner_id: str) -> dict[str, list[dict[str, Any]]]:
     kbs: list[dict[str, Any]] = []
     kb_root = root / "knowledge_bases"
     if kb_root.is_dir():
+        seen: set[str] = set()
+        config_file = kb_root / "kb_config.json"
+        if config_file.exists():
+            try:
+                config = json.loads(config_file.read_text(encoding="utf-8"))
+                for name, entry in (config.get("knowledge_bases", {}) or {}).items():
+                    if isinstance(entry, dict):
+                        seen.add(name)
+                        doc_count = entry.get("doc_count") or entry.get("documents") or 0
+                        if not doc_count:
+                            target_dir = kb_root / name
+                            if target_dir.is_dir():
+                                raw_dir = target_dir / "raw"
+                                if raw_dir.is_dir():
+                                    doc_count = sum(1 for f in raw_dir.glob("*") if f.is_file())
+                        kbs.append({"name": name, "documents": doc_count})
+            except Exception:
+                pass
         for entry in sorted(kb_root.iterdir()):
-            if entry.is_dir() and not entry.name.startswith((".", "_")):
+            if entry.is_dir() and not entry.name.startswith((".", "_")) and entry.name not in seen:
                 raw_count = sum(1 for f in (entry / "raw").glob("*") if f.is_file())
                 kbs.append({"name": entry.name, "documents": raw_count})
 
@@ -326,9 +378,10 @@ def remove_asset(partner_id: str, asset_type: str, name: str) -> bool:
 
     if asset_type == "knowledge_base":
         target = root / "knowledge_bases" / name
-        if not target.is_dir():
-            return False
-        shutil.rmtree(target)
+        removed = False
+        if target.is_dir():
+            shutil.rmtree(target)
+            removed = True
         config_file = root / "knowledge_bases" / "kb_config.json"
         if config_file.exists():
             try:
@@ -338,9 +391,10 @@ def remove_asset(partner_id: str, asset_type: str, name: str) -> bool:
                     config_file.write_text(
                         json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
+                    removed = True
             except (OSError, json.JSONDecodeError):
                 logger.warning("Could not prune kb_config entry for %s", name, exc_info=True)
-        return True
+        return removed
 
     if asset_type == "skill":
         target = service.get_workspace_dir() / "skills" / name

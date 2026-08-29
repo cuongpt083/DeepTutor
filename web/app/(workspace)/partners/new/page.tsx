@@ -357,7 +357,8 @@ export default function NewPartnerPage() {
                   onChange={(e) => setLanguage(e.target.value)}
                   className="w-48 rounded-xl border border-[var(--border)] bg-transparent px-3 py-2 text-[14px] outline-none transition-colors focus:border-[var(--ring)]"
                 >
-                  <option value="">{t("Auto (English)")}</option>
+                  <option value="">{t("language.auto") || "Auto"}</option>
+                  <option value="vi">Tiếng Việt</option>
                   <option value="en">English</option>
                   <option value="zh">中文</option>
                 </select>
