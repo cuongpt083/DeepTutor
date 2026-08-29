@@ -1003,7 +1003,7 @@ class TurnRuntimeManager:
                 get_response_language,
             )
 
-            payload = {**payload, "language": get_response_language(default="en")}
+            payload = {**payload, "language": get_response_language(default="auto")}
         raw_config = dict(payload.get("config", {}) or {})
         runtime_only_keys = (
             "_persist_user_message",
@@ -1161,7 +1161,7 @@ class TurnRuntimeManager:
             "capability": capability,
             "tools": list(payload.get("tools") or []),
             "knowledge_bases": list(payload.get("knowledge_bases") or []),
-            "language": str(payload.get("language") or "en"),
+            "language": str(payload.get("language") or "auto"),
         }
         requested_course_id = str(runtime_only_config.get("_course_id") or "").strip()
         if requested_course_id:
@@ -1866,7 +1866,7 @@ class TurnRuntimeManager:
             history_result = await builder.build(
                 session_id=session_id,
                 llm_config=llm_config,
-                language=payload.get("language", "en"),
+                language=payload.get("language") or "auto",
                 on_event=_emit_context_event,
                 leaf_message_id=branch_parent_id,
             )
