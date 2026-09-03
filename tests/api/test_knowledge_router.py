@@ -79,6 +79,7 @@ class _FakeKBManager:
         server_url: str,
         *,
         api_key: str = "",
+        workspace: str = "",
         search_mode: str = "",
         description: str = "",
     ) -> dict:
@@ -90,6 +91,7 @@ class _FakeKBManager:
             "rag_provider": "lightrag-server",
             "server_url": server_url,
             "api_key": api_key,
+            "workspace": workspace,
             "status": "ready",
         }
         if search_mode:
@@ -1711,6 +1713,50 @@ def test_connect_lightrag_server_registers_pointer(monkeypatch, tmp_path: Path) 
     assert entry["type"] == "lightrag_server"
     assert entry["server_url"] == "http://localhost:9621"
     assert entry["search_mode"] == "mix"  # normalized + validated
+
+
+def test_connect_lightrag_server_records_workspace(monkeypatch, tmp_path: Path) -> None:
+    manager = _FakeKBManager(tmp_path / "knowledge_bases")
+    monkeypatch.setattr(knowledge_router_module, "get_kb_manager", lambda: manager)
+    _patch_server_probe(monkeypatch, ok=True)
+
+    with TestClient(_build_app()) as client:
+        response = client.post(
+            "/api/v1/knowledge/connect-lightrag-server",
+            json={
+                "name": "remote-ws-kb",
+                "server_url": "http://localhost:9621/",
+                "workspace": "my-workspace",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workspace"] == "my-workspace"
+    entry = manager.config["knowledge_bases"]["remote-ws-kb"]
+    assert entry["workspace"] == "my-workspace"
+
+
+def test_probe_lightrag_server_accepts_workspace(monkeypatch) -> None:
+    captured_probe = {}
+
+    from deeptutor.services.rag.pipelines.lightrag_server import probe as probe_module
+
+    async def _inspect_probe(server_url: str, api_key: str = "", workspace: str = "", **_kwargs):
+        captured_probe["workspace"] = workspace
+        result = probe_module.ServerProbe(base_url=server_url.rstrip("/"))
+        result.ok = True
+        return result
+
+    monkeypatch.setattr(probe_module, "probe_server", _inspect_probe)
+
+    with TestClient(_build_app()) as client:
+        response = client.post(
+            "/api/v1/knowledge/probe-lightrag-server",
+            json={"server_url": "http://localhost:9621", "workspace": "ws-to-probe"},
+        )
+    assert response.status_code == 200
+    assert captured_probe.get("workspace") == "ws-to-probe"
 
 
 def test_connect_lightrag_server_rejects_unreachable(monkeypatch, tmp_path: Path) -> None:

@@ -87,6 +87,21 @@ def test_config_from_entry_requires_server_url() -> None:
         raise AssertionError("expected LightRagServerNotConfiguredError")
 
 
+def test_config_from_entry_reads_workspace() -> None:
+    cfg = config_from_entry(
+        {"server_url": "http://x:9621/", "api_key": "k", "workspace": "my-ws"}
+    )
+    assert cfg.workspace == "my-ws"
+
+    cfg_alias = config_from_entry(
+        {"server_url": "http://x:9621/", "api_key": "k", "workspace_name": "alias-ws"}
+    )
+    assert cfg_alias.workspace == "alias-ws"
+
+    cfg_default = config_from_entry({"server_url": "http://x:9621/"})
+    assert cfg_default.workspace == ""
+
+
 # ----- client ------------------------------------------------------------
 
 
@@ -109,6 +124,67 @@ def test_client_verify_key_true_and_false() -> None:
     assert asyncio.run(bad.verify_key()) is False
 
 
+def test_client_sends_workspace_header_when_configured() -> None:
+    captured_headers: dict[str, dict[str, str]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers[request.url.path] = dict(request.headers)
+        if request.url.path == "/query":
+            return httpx.Response(200, json={"response": "ok", "references": []})
+        if request.url.path == "/auth-status":
+            return httpx.Response(200, json={"auth_configured": False})
+        if request.url.path == "/documents/pipeline_status":
+            return httpx.Response(200, json={})
+        return httpx.Response(404, json={})
+
+    client = LightRagServerClient(
+        LightRagServerConfig("http://x", "secret", workspace="custom-workspace"),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(client.query_context("test", "mix"))
+    asyncio.run(client.auth_status())
+    asyncio.run(client.verify_key())
+
+    assert captured_headers["/query"].get("lightrag-workspace") == "custom-workspace"
+    assert captured_headers["/auth-status"].get("lightrag-workspace") == "custom-workspace"
+    assert captured_headers["/documents/pipeline_status"].get("lightrag-workspace") == "custom-workspace"
+
+
+def test_client_omits_workspace_header_when_not_set() -> None:
+    captured_headers: dict[str, dict[str, str]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers[request.url.path] = dict(request.headers)
+        if request.url.path == "/query":
+            return httpx.Response(200, json={"response": "ok", "references": []})
+        return httpx.Response(404, json={})
+
+    client = LightRagServerClient(
+        LightRagServerConfig("http://x", "secret", workspace=""),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(client.query_context("test", "mix"))
+    assert "lightrag-workspace" not in captured_headers["/query"]
+
+
+def test_client_omits_workspace_header_for_health() -> None:
+    captured_headers: dict[str, dict[str, str]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers[request.url.path] = dict(request.headers)
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "healthy"})
+        return httpx.Response(404, json={})
+
+    client = LightRagServerClient(
+        LightRagServerConfig("http://x", "secret", workspace="custom-workspace"),
+        transport=httpx.MockTransport(handler),
+    )
+    res = asyncio.run(client.health())
+    assert res == {"status": "healthy"}
+    assert "lightrag-workspace" not in captured_headers["/health"]
+
+
 # ----- probe -------------------------------------------------------------
 
 
@@ -122,6 +198,21 @@ def test_probe_ok_when_reachable_and_key_valid() -> None:
     assert probe.auth_ok is True
     assert probe.core_version == "1.2.3"
     assert probe.base_url == "http://x:9621"
+
+
+def test_probe_passes_workspace_to_config() -> None:
+    captured_config = []
+
+    def factory(config):
+        captured_config.append(config)
+        return LightRagServerClient(config, transport=_transport(auth_configured=False))
+
+    probe = asyncio.run(
+        probe_server("http://x:9621", "", workspace="custom-ws", client_factory=factory)
+    )
+    assert probe.ok is True
+    assert len(captured_config) == 1
+    assert captured_config[0].workspace == "custom-ws"
 
 
 def test_probe_rejects_bad_key() -> None:

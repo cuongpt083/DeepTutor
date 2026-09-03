@@ -901,6 +901,7 @@ export async function connectImaKnowledgeBase(payload: {
 export async function probeLightRagServer(payload: {
   serverUrl: string;
   apiKey?: string;
+  workspace?: string;
 }): Promise<LightRagServerProbe> {
   const res = await apiFetch(
     apiUrl("/api/v1/knowledge/probe-lightrag-server"),
@@ -910,6 +911,7 @@ export async function probeLightRagServer(payload: {
       body: JSON.stringify({
         server_url: payload.serverUrl,
         api_key: payload.apiKey ?? "",
+        workspace: payload.workspace ?? "",
       }),
     },
   );
@@ -925,11 +927,13 @@ export async function connectLightRagServer(payload: {
   name: string;
   serverUrl: string;
   apiKey?: string;
+  workspace?: string;
   mode?: string;
 }): Promise<{
   status: string;
   name: string;
   server_url: string;
+  workspace?: string;
   rag_provider: string;
 }> {
   const res = await apiFetch(
@@ -941,6 +945,7 @@ export async function connectLightRagServer(payload: {
         name: payload.name,
         server_url: payload.serverUrl,
         api_key: payload.apiKey ?? "",
+        workspace: payload.workspace ?? "",
         search_mode: payload.mode ?? "",
       }),
     },
@@ -955,6 +960,7 @@ export async function connectLightRagServer(payload: {
     status: string;
     name: string;
     server_url: string;
+    workspace?: string;
     rag_provider: string;
   };
 }

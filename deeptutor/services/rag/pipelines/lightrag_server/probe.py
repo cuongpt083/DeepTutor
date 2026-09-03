@@ -41,6 +41,7 @@ class ServerProbe:
 async def probe_server(
     server_url: str,
     api_key: str = "",
+    workspace: str = "",
     *,
     client_factory=None,
 ) -> ServerProbe:
@@ -58,7 +59,11 @@ async def probe_server(
         probe.error = "Server URL must start with http:// or https://."
         return probe
 
-    config = LightRagServerConfig(base_url=base_url, api_key=(api_key or "").strip())
+    config = LightRagServerConfig(
+        base_url=base_url,
+        api_key=(api_key or "").strip(),
+        workspace=(workspace or "").strip(),
+    )
     client = client_factory(config) if client_factory else LightRagServerClient(config)
 
     try:

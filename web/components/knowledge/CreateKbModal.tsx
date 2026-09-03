@@ -72,6 +72,7 @@ interface CreateKbModalProps {
     name: string;
     serverUrl: string;
     apiKey?: string;
+    workspace?: string;
     mode?: string;
   }) => Promise<void>;
   /** Connect a MarginNote 4 library (its Add-on pushes objects in; no index). */
@@ -122,6 +123,7 @@ export default function CreateKbModal({
   // LightRAG Server engine (new mode): a connection instead of an upload.
   const [serverUrl, setServerUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [workspace, setWorkspace] = useState("");
   const [serverMode, setServerMode] = useState("");
   const [serverProbe, setServerProbe] = useState<LightRagServerProbe | null>(
     null,
@@ -181,6 +183,7 @@ export default function CreateKbModal({
     setProbing(false);
     setServerUrl("");
     setApiKey("");
+    setWorkspace("");
     setServerMode("");
     setServerProbe(null);
     setServerProbing(false);
@@ -191,10 +194,10 @@ export default function CreateKbModal({
     setProbe(null);
   }, [folderPath, linkSource]);
 
-  // A fresh URL / key invalidates a stale server connection test.
+  // A fresh URL / key / workspace invalidates a stale server connection test.
   useEffect(() => {
     setServerProbe(null);
-  }, [serverUrl, apiKey]);
+  }, [serverUrl, apiKey, workspace]);
 
   // ---- New mode (build a fresh index) ----------------------------------
   const activeProvider = providers.find((p) => p.id === provider);
@@ -260,7 +263,8 @@ export default function CreateKbModal({
     try {
       const result = await probeLightRagServer({
         serverUrl: trimmedServerUrl,
-        apiKey: apiKey.trim(),
+        apiKey: apiKey.trim() || undefined,
+        workspace: workspace.trim() || undefined,
       });
       setServerProbe(result);
     } catch (err) {
@@ -280,7 +284,8 @@ export default function CreateKbModal({
           await onConnectLightRagServer({
             name: trimmed,
             serverUrl: trimmedServerUrl,
-            apiKey: apiKey.trim(),
+            apiKey: apiKey.trim() || undefined,
+            workspace: workspace.trim() || undefined,
             mode: effectiveServerMode,
           });
         } else {
@@ -412,6 +417,8 @@ export default function CreateKbModal({
                   setServerUrl={setServerUrl}
                   apiKey={apiKey}
                   setApiKey={setApiKey}
+                  workspace={workspace}
+                  setWorkspace={setWorkspace}
                   serverMode={effectiveServerMode}
                   setServerMode={setServerMode}
                   modeOptions={serverModeOptions}
@@ -721,6 +728,8 @@ function LightRagServerFields({
   setServerUrl,
   apiKey,
   setApiKey,
+  workspace,
+  setWorkspace,
   serverMode,
   setServerMode,
   modeOptions,
@@ -734,6 +743,8 @@ function LightRagServerFields({
   setServerUrl: (value: string) => void;
   apiKey: string;
   setApiKey: (value: string) => void;
+  workspace: string;
+  setWorkspace: (value: string) => void;
   serverMode: string;
   setServerMode: (value: string) => void;
   modeOptions: string[];
@@ -794,6 +805,27 @@ function LightRagServerFields({
           placeholder={t("Only if your server requires one")}
           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
         />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+          {t("Workspace name")}
+          <span className="ml-2 normal-case tracking-normal text-[var(--muted-foreground)]/80">
+            · {t("optional")}
+          </span>
+        </label>
+        <input
+          value={workspace}
+          onChange={(event) => setWorkspace(event.target.value)}
+          disabled={submitting}
+          placeholder={t("Default workspace if left blank")}
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
+        />
+        <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+          {t(
+            "Target workspace on the LightRAG server. Leave blank for default.",
+          )}
+        </p>
       </div>
 
       {modeOptions.length > 0 && (

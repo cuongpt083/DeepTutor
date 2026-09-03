@@ -35,6 +35,7 @@ class LightRagServerConfig:
 
     base_url: str
     api_key: str
+    workspace: str = ""
 
 
 def normalize_base_url(url: str | None) -> str:
@@ -55,7 +56,12 @@ def config_from_entry(entry: dict[str, Any]) -> LightRagServerConfig:
             "This knowledge base is not connected to a LightRAG server "
             "(no server URL configured). Re-create it with a valid server URL."
         )
-    return LightRagServerConfig(base_url=base_url, api_key=str(entry.get("api_key") or "").strip())
+    workspace = str(entry.get("workspace") or entry.get("workspace_name") or "").strip()
+    return LightRagServerConfig(
+        base_url=base_url,
+        api_key=str(entry.get("api_key") or "").strip(),
+        workspace=workspace,
+    )
 
 
 __all__ = [

@@ -850,6 +850,7 @@ class KnowledgeBaseManager:
         server_url: str,
         *,
         api_key: str = "",
+        workspace: str = "",
         search_mode: str = "",
         description: str = "",
     ) -> dict:
@@ -857,11 +858,11 @@ class KnowledgeBaseManager:
 
         Like the other connected types this creates no folder under ``base_dir``
         and runs no index pipeline: it records a ``type: lightrag_server`` entry
-        whose ``server_url`` (+ optional ``api_key``) the ``lightrag-server``
-        provider queries over HTTP. The server owns indexing entirely. Callers
-        should validate reachability with the probe helper first; this only
-        guards basic invariants. Raises ``ValueError`` on a missing name/URL or a
-        name clash.
+        whose ``server_url`` (+ optional ``api_key`` and ``workspace``) the
+        ``lightrag-server`` provider queries over HTTP. The server owns indexing
+        entirely. Callers should validate reachability with the probe helper
+        first; this only guards basic invariants. Raises ``ValueError`` on a
+        missing name/URL or a name clash.
         """
         name = (name or "").strip()
         server_url = (server_url or "").strip().rstrip("/")
@@ -882,6 +883,7 @@ class KnowledgeBaseManager:
             "rag_provider": LIGHTRAG_SERVER_PROVIDER,
             "server_url": server_url,
             "api_key": (api_key or "").strip(),
+            "workspace": (workspace or "").strip(),
             "description": description or f"LightRAG server: {name}",
             "status": "ready",
             "needs_reindex": False,
@@ -1181,6 +1183,7 @@ class KnowledgeBaseManager:
                 # LightRAG server pointer (the URL is safe to surface; the API
                 # key deliberately is not).
                 "server_url": kb_config.get("server_url"),
+                "workspace": kb_config.get("workspace"),
                 # IMA pointer. The library id identifies which IMA knowledge
                 # base this KB reads; the client id and API key are credentials
                 # and are deliberately absent from this allowlist.
@@ -1340,6 +1343,8 @@ class KnowledgeBaseManager:
         # the backend, so it is deliberately not surfaced here.
         if kb_config.get("server_url"):
             metadata["server_url"] = kb_config.get("server_url")
+        if kb_config.get("workspace"):
+            metadata["workspace"] = kb_config.get("workspace")
         # Same split for IMA: the library id is shown, the credentials are not.
         if kb_config.get("knowledge_base_id"):
             metadata["knowledge_base_id"] = kb_config.get("knowledge_base_id")

@@ -35,8 +35,23 @@ def test_register_writes_pointer(tmp_path) -> None:
     assert entry["search_mode"] == "mix"
     assert entry["status"] == "ready"
     assert entry["needs_reindex"] is False
-    # No KB folder is created under base_dir.
     assert not (manager.base_dir / "Remote").exists()
+
+
+def test_register_writes_workspace(tmp_path) -> None:
+    manager = KnowledgeBaseManager(base_dir=str(tmp_path / "kbs"))
+
+    entry = manager.register_lightrag_server_kb(
+        "RemoteWS",
+        "http://localhost:9621",
+        workspace="my-custom-workspace",
+    )
+
+    assert entry["workspace"] == "my-custom-workspace"
+    meta = manager.get_metadata("RemoteWS")
+    assert meta["workspace"] == "my-custom-workspace"
+    info = manager.get_info("RemoteWS")
+    assert info["metadata"]["workspace"] == "my-custom-workspace"
 
 
 def test_register_rejects_missing_url(tmp_path) -> None:

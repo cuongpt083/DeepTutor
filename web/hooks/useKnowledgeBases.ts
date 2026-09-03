@@ -334,6 +334,7 @@ export function useKnowledgeBases() {
       name: string;
       serverUrl: string;
       apiKey?: string;
+      workspace?: string;
       mode?: string;
     }) => {
       await connectLightRagServerApi(params);

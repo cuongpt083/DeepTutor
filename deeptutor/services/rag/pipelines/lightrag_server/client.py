@@ -52,11 +52,22 @@ class LightRagServerClient:
             # LightRAG server authenticates with an ``X-API-Key`` header
             # (its ``LIGHTRAG_API_KEY``); absent when the server runs open.
             headers["X-API-Key"] = self._config.api_key
+        if self._config.workspace:
+            headers["LIGHTRAG-WORKSPACE"] = self._config.workspace
+
+        async def _strip_workspace_for_health(request: httpx.Request) -> None:
+            # /health on LightRAG server does not handle the workspace header.
+            path = request.url.path.rstrip("/")
+            if path == "/health" or path.endswith("/health"):
+                request.headers.pop("LIGHTRAG-WORKSPACE", None)
+                request.headers.pop("lightrag-workspace", None)
+
         return httpx.AsyncClient(
             base_url=self._config.base_url,
             headers=headers,
             timeout=self._timeout,
             transport=self._transport,
+            event_hooks={"request": [_strip_workspace_for_health]},
         )
 
     @staticmethod
@@ -123,6 +134,16 @@ class LightRagServerClient:
                 f"LightRAG server returned {resp.status_code}: {resp.text[:300]}"
             )
         return True
+
+    async def health(self) -> dict[str, Any]:
+        """Fetch ``/health`` to probe server health.
+
+        The LightRAG server's ``/health`` endpoint does not process the
+        ``LIGHTRAG-WORKSPACE`` header, so that header is excluded.
+        """
+        async with self._open() as client:
+            resp = await client.get("/health")
+        return self._json(resp)
 
 
 def _sources_from_references(references: Any) -> list[dict[str, Any]]:

@@ -1854,13 +1854,25 @@ async def connect_linked_folder_route(payload: ConnectFolderRequest):
 class ProbeLightRagServerRequest(BaseModel):
     server_url: str
     api_key: str = ""
+    workspace: str = ""
+    workspace_name: str = ""
+
+    @property
+    def resolved_workspace(self) -> str:
+        return (self.workspace or self.workspace_name or "").strip()
 
 
 class ConnectLightRagServerRequest(BaseModel):
     name: str
     server_url: str
     api_key: str = ""
+    workspace: str = ""
+    workspace_name: str = ""
     search_mode: str = ""
+
+    @property
+    def resolved_workspace(self) -> str:
+        return (self.workspace or self.workspace_name or "").strip()
 
 
 @router.post("/probe-lightrag-server")
@@ -1875,7 +1887,11 @@ async def probe_lightrag_server_route(payload: ProbeLightRagServerRequest):
     server_url = (payload.server_url or "").strip()
     if not server_url:
         raise HTTPException(status_code=400, detail="server_url is required.")
-    result = await probe_server(server_url, payload.api_key or "")
+    result = await probe_server(
+        server_url,
+        payload.api_key or "",
+        workspace=payload.resolved_workspace,
+    )
     return result.to_dict()
 
 
@@ -1895,7 +1911,12 @@ async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
     if not name or not server_url:
         raise HTTPException(status_code=400, detail="Both name and server_url are required.")
 
-    result = await probe_server(server_url, payload.api_key or "")
+    workspace = payload.resolved_workspace
+    result = await probe_server(
+        server_url,
+        payload.api_key or "",
+        workspace=workspace,
+    )
     if not result.ok:
         raise HTTPException(
             status_code=400, detail=result.error or "Could not connect to the LightRAG server."
@@ -1911,6 +1932,7 @@ async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
             name,
             result.base_url,
             api_key=payload.api_key or "",
+            workspace=workspace,
             search_mode=search_mode,
         )
     except ValueError as e:
@@ -1925,6 +1947,7 @@ async def connect_lightrag_server_route(payload: ConnectLightRagServerRequest):
         "status": "connected",
         "name": name,
         "server_url": entry["server_url"],
+        "workspace": entry.get("workspace", ""),
         "rag_provider": entry["rag_provider"],
     }
 
