@@ -22,6 +22,7 @@ export class ZaloBridgeServer {
     this.loginState = "idle";
     this.currentQrData = null;
     this.currentLoginActions = null;
+    this.recentMessages = new Map();
   }
 
   async start() {
@@ -105,18 +106,59 @@ export class ZaloBridgeServer {
         throw new Error("Zalo API not logged in");
       }
       const threadType = parsed.thread_type === "group" ? 1 : 0;
+
+      let quote = undefined;
+      if (parsed.quote_id) {
+        const cached = this.recentMessages.get(String(parsed.quote_id));
+        if (cached) {
+          quote = {
+            content: typeof cached.content === "string" ? cached.content : "",
+            msgType: cached.msgType || "webchat",
+            propertyExt: cached.propertyExt || {},
+            uidFrom: String(cached.uidFrom || cached.fromUid || ""),
+            msgId: String(cached.msgId || parsed.quote_id),
+            cliMsgId: String(cached.cliMsgId || cached.msgId || parsed.quote_id),
+            ts: Number(cached.ts || Date.now()),
+            ttl: Number(cached.ttl || 0),
+          };
+        } else if (threadType === 0) {
+          // Direct 1:1 message quote only requires msgId
+          quote = { msgId: parsed.quote_id };
+        }
+      }
+
       const messagePayload = {
         msg: parsed.text,
-        quote: parsed.quote_id ? { msgId: parsed.quote_id } : undefined,
       };
+      if (quote) {
+        messagePayload.quote = quote;
+      }
       if (parsed.styles && parsed.styles.length > 0) {
         messagePayload.styles = parsed.styles;
       }
-      await this.zaloApi.sendMessage(
-        messagePayload,
-        parsed.thread_id,
-        threadType
-      );
+
+      try {
+        await this.zaloApi.sendMessage(
+          messagePayload,
+          parsed.thread_id,
+          threadType
+        );
+      } catch (err) {
+        if (messagePayload.quote) {
+          console.warn(
+            `[ZaloBridge] Send with quote failed for ${parsed.thread_id}, retrying without quote:`,
+            err?.message || err
+          );
+          delete messagePayload.quote;
+          await this.zaloApi.sendMessage(
+            messagePayload,
+            parsed.thread_id,
+            threadType
+          );
+        } else {
+          throw err;
+        }
+      }
     } else if (data.type === "typing") {
       const parsed = parseTypingMessage(data);
       if (!this.zaloApi) return;
@@ -279,6 +321,13 @@ export class ZaloBridgeServer {
     if (!api?.listener) return;
 
     api.listener.on("message", (msg) => {
+      if (msg?.data?.msgId) {
+        this.recentMessages.set(String(msg.data.msgId), msg.data);
+        if (this.recentMessages.size > 1000) {
+          const firstKey = this.recentMessages.keys().next().value;
+          this.recentMessages.delete(firstKey);
+        }
+      }
       this.broadcast(formatInboundMessage(msg));
     });
 

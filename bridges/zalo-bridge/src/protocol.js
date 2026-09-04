@@ -42,10 +42,14 @@ export function parseOutboundMessage(raw) {
     throw new Error("Missing thread_id or text in send payload");
   }
 
+  const rawThreadId = String(parsed.thread_id);
+  const isGroup = parsed.thread_type === "group" || rawThreadId.startsWith("group:");
+  const threadId = rawThreadId.startsWith("group:") ? rawThreadId.slice(6) : rawThreadId;
+
   return {
     type: "send",
-    thread_id: String(parsed.thread_id),
-    thread_type: parsed.thread_type === "group" ? "group" : "user",
+    thread_id: threadId,
+    thread_type: isGroup ? "group" : "user",
     text: String(parsed.text),
     styles: Array.isArray(parsed.styles) ? parsed.styles : undefined,
     quote_id: parsed.quote_id ? String(parsed.quote_id) : undefined,
@@ -67,12 +71,17 @@ export function parseTypingMessage(raw) {
     throw new Error("Missing thread_id in typing payload");
   }
 
+  const rawThreadId = String(parsed.thread_id);
+  const isGroup = parsed.thread_type === "group" || rawThreadId.startsWith("group:");
+  const threadId = rawThreadId.startsWith("group:") ? rawThreadId.slice(6) : rawThreadId;
+
   return {
     type: "typing",
-    thread_id: String(parsed.thread_id),
-    thread_type: parsed.thread_type === "group" ? "group" : "user",
+    thread_id: threadId,
+    thread_type: isGroup ? "group" : "user",
   };
 }
+
 
 
 export function formatStatus(status, details = {}) {

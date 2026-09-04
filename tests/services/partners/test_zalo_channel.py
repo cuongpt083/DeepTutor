@@ -149,8 +149,10 @@ async def test_zalo_inbound_group_mention_policy(mock_bus):
     await channel._handle_bridge_message(json.dumps(with_mention))
     mock_bus.publish_inbound.assert_called_once()
     inbound = mock_bus.publish_inbound.call_args[0][0]
-    assert inbound.chat_id == "group-456"
+    assert inbound.chat_id == "group:group-456"
     assert inbound.metadata["thread_type"] == "group"
+    assert inbound.metadata["is_group"] is True
+
 
 
 @pytest.mark.asyncio
@@ -279,3 +281,42 @@ async def test_zalo_outbound_markdown_formatting(mock_bus):
     assert "#" not in payload["text"]
     assert "styles" in payload
     assert len(payload["styles"]) >= 2
+
+
+@pytest.mark.asyncio
+async def test_zalo_outbound_group_send_routing(mock_bus):
+    config = ZaloConfig(enabled=True, allow_from=["*"], reply_with_quote=True)
+    channel = ZaloChannel(config, mock_bus)
+    mock_ws = AsyncMock()
+    channel._ws = mock_ws
+    channel._connected = True
+
+    # 1. Inbound group message arrives
+    group_msg = {
+        "type": "message",
+        "id": "msg-grp-999",
+        "thread_id": "group_888",
+        "thread_type": "group",
+        "sender_id": "user_111",
+        "content": "@Bot hello in group",
+        "is_self": False,
+        "mentions": [],
+    }
+    await channel._handle_bridge_message(json.dumps(group_msg))
+
+    # 2. Outbound message produced with empty delivery_meta (standard runtime behavior)
+    outbound = OutboundMessage(
+        channel="zalo",
+        chat_id="group:group_888",
+        content="Group answer",
+        metadata={},  # metadata has no thread_type or origin_message_id
+    )
+    await channel.send(outbound)
+
+    mock_ws.send.assert_called()
+    sent_payload = json.loads(mock_ws.send.call_args[0][0])
+    assert sent_payload["type"] == "send"
+    assert sent_payload["thread_id"] == "group_888"  # prefix stripped
+    assert sent_payload["thread_type"] == "group"  # correctly routed to group!
+    assert sent_payload["quote_id"] == "msg-grp-999"  # quote recovered from cache!
+

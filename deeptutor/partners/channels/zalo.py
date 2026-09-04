@@ -52,6 +52,8 @@ class ZaloChannel(BaseChannel):
         self.last_error_status: str = ""
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         self._typing_tasks: dict[str, asyncio.Task] = {}
+        self._chat_thread_types: OrderedDict[str, str] = OrderedDict()
+        self._last_chat_message_ids: OrderedDict[str, str] = OrderedDict()
 
     async def start(self) -> None:
         """Start the Zalo channel by connecting to the bridge."""
@@ -109,15 +111,22 @@ class ZaloChannel(BaseChannel):
     def _start_typing(self, chat_id: str, thread_type: str = "user") -> None:
         """Start sending periodic typing indicator for a chat."""
         self._stop_typing(chat_id)
+        raw_thread_id = (
+            chat_id.removeprefix("group:") if chat_id.startswith("group:") else chat_id
+        )
         self._typing_tasks[chat_id] = asyncio.create_task(
-            self._typing_loop(chat_id, thread_type)
+            self._typing_loop(raw_thread_id, thread_type)
         )
 
     def _stop_typing(self, chat_id: str) -> None:
         """Stop the typing indicator for a chat."""
-        task = self._typing_tasks.pop(chat_id, None)
-        if task and not task.done():
-            task.cancel()
+        raw_id = (
+            chat_id.removeprefix("group:") if chat_id.startswith("group:") else chat_id
+        )
+        for key in (chat_id, raw_id, f"group:{raw_id}"):
+            task = self._typing_tasks.pop(key, None)
+            if task and not task.done():
+                task.cancel()
 
     async def _typing_loop(self, chat_id: str, thread_type: str) -> None:
         """Periodically send typing indicator to Zalo until stopped or timed out."""
@@ -146,8 +155,30 @@ class ZaloChannel(BaseChannel):
             raise RuntimeError("Zalo bridge is not connected")
 
         metadata = msg.metadata or {}
-        thread_type = metadata.get("thread_type", "user")
-        quote_id = metadata.get("origin_message_id") if self.config.reply_with_quote else None
+        raw_chat_id = str(msg.chat_id or "")
+        is_group = (
+            raw_chat_id.startswith("group:")
+            or metadata.get("thread_type") == "group"
+            or metadata.get("is_group") is True
+            or self._chat_thread_types.get(raw_chat_id) == "group"
+        )
+        thread_type = "group" if is_group else "user"
+        target_thread_id = (
+            raw_chat_id.removeprefix("group:")
+            if raw_chat_id.startswith("group:")
+            else raw_chat_id
+        )
+
+        quote_id = (
+            metadata.get("origin_message_id")
+            if self.config.reply_with_quote
+            else None
+        )
+        if not quote_id and self.config.reply_with_quote:
+            quote_id = (
+                self._last_chat_message_ids.get(target_thread_id)
+                or self._last_chat_message_ids.get(raw_chat_id)
+            )
 
         raw_content = msg.content or ""
         chunks = (
@@ -160,7 +191,7 @@ class ZaloChannel(BaseChannel):
             text, styles = format_for_zalo(chunk)
             payload: dict[str, Any] = {
                 "type": "send",
-                "thread_id": msg.chat_id,
+                "thread_id": target_thread_id,
                 "thread_type": thread_type,
                 "text": text,
             }
@@ -170,6 +201,7 @@ class ZaloChannel(BaseChannel):
                 payload["quote_id"] = quote_id
 
             await self._ws.send(json.dumps(payload, ensure_ascii=False))
+
 
 
     def _is_mentioned(self, mentions: list[dict[str, Any]]) -> bool:
@@ -227,8 +259,11 @@ class ZaloChannel(BaseChannel):
             content = str(data.get("content") or "")
             mentions = data.get("mentions") or []
 
+            is_group = (thread_type == "group")
+            chat_id = f"group:{thread_id}" if is_group else thread_id
+
             # Group policy check
-            if thread_type == "group":
+            if is_group:
                 policy = self.config.group_policy
                 if policy == "allowlist":
                     if thread_id not in self.config.group_allow_from:
@@ -237,18 +272,31 @@ class ZaloChannel(BaseChannel):
                     if not self._is_mentioned(mentions):
                         return
 
+            self._chat_thread_types[thread_id] = thread_type
+            self._chat_thread_types[chat_id] = thread_type
+            while len(self._chat_thread_types) > 1000:
+                self._chat_thread_types.popitem(last=False)
+
+            if msg_id:
+                self._last_chat_message_ids[thread_id] = msg_id
+                self._last_chat_message_ids[chat_id] = msg_id
+                while len(self._last_chat_message_ids) > 1000:
+                    self._last_chat_message_ids.popitem(last=False)
+
             metadata: dict[str, Any] = {
                 "origin_message_id": msg_id,
                 "thread_type": thread_type,
+                "is_group": is_group,
                 "sender_name": data.get("sender_name", ""),
                 "timestamp": data.get("timestamp"),
             }
 
-            self._start_typing(thread_id, thread_type)
+            self._start_typing(chat_id, thread_type)
 
             await self._handle_message(
                 sender_id=sender_id,
-                chat_id=thread_id,
+                chat_id=chat_id,
                 content=content,
                 metadata=metadata,
             )
+

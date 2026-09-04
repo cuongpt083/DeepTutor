@@ -158,3 +158,69 @@ test("ZaloBridgeServer dispatches send with styles and typing event to zaloApi",
   }
 });
 
+test("ZaloBridgeServer resolves cached quote for group and retries without quote on failure", async () => {
+  const server = new ZaloBridgeServer({
+    port: 3995,
+    token: "",
+    sessionPath: "/tmp/test-zalo-session.json",
+  });
+
+  // Pre-populate cached message
+  server.recentMessages.set("msg_orig_1", {
+    msgId: "msg_orig_1",
+    cliMsgId: "cli_1",
+    uidFrom: "user_author",
+    content: "Original question",
+    ts: 1725390000000,
+  });
+
+  let callCount = 0;
+  const attempts = [];
+  server.zaloApi = {
+    getContext: () => ({ uid: "bot_123" }),
+    sendMessage: async (payload, threadId, threadType) => {
+      callCount++;
+      attempts.push({ payload: { ...payload }, threadId, threadType });
+      if (payload.quote) {
+        throw new Error("Invalid quote content");
+      }
+      return { message: { msgId: 200 } };
+    },
+  };
+
+  await server.start();
+
+  try {
+    const ws = new WebSocket("ws://127.0.0.1:3995");
+    await new Promise((resolve) => ws.once("open", resolve));
+
+    // Send message to group quoting msg_orig_1
+    ws.send(
+      JSON.stringify({
+        type: "send",
+        thread_id: "group_555",
+        thread_type: "group",
+        text: "Answer in group",
+        quote_id: "msg_orig_1",
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Attempt 1 had quote and failed; Attempt 2 succeeded without quote
+    assert.equal(callCount, 2);
+    assert.equal(attempts[0].threadType, 1);
+    assert.ok(attempts[0].payload.quote);
+    assert.equal(attempts[0].payload.quote.content, "Original question");
+
+    assert.equal(attempts[1].threadType, 1);
+    assert.equal(attempts[1].payload.quote, undefined);
+    assert.equal(attempts[1].payload.msg, "Answer in group");
+
+    ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+
+
