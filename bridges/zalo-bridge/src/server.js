@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import {
   formatInboundMessage,
   parseOutboundMessage,
+  parseTypingMessage,
   formatStatus,
   formatQrEvent,
 } from "./protocol.js";
@@ -104,14 +105,27 @@ export class ZaloBridgeServer {
         throw new Error("Zalo API not logged in");
       }
       const threadType = parsed.thread_type === "group" ? 1 : 0;
+      const messagePayload = {
+        msg: parsed.text,
+        quote: parsed.quote_id ? { msgId: parsed.quote_id } : undefined,
+      };
+      if (parsed.styles && parsed.styles.length > 0) {
+        messagePayload.styles = parsed.styles;
+      }
       await this.zaloApi.sendMessage(
-        {
-          msg: parsed.text,
-          quote: parsed.quote_id ? { msgId: parsed.quote_id } : undefined,
-        },
+        messagePayload,
         parsed.thread_id,
         threadType
       );
+    } else if (data.type === "typing") {
+      const parsed = parseTypingMessage(data);
+      if (!this.zaloApi) return;
+      const threadType = parsed.thread_type === "group" ? 1 : 0;
+      try {
+        await this.zaloApi.sendTypingEvent(parsed.thread_id, threadType);
+      } catch (err) {
+        console.debug(`Typing indicator failed for ${parsed.thread_id}:`, err?.message || err);
+      }
     } else if (data.type === "start_qr_login") {
       if (this.currentQrData) {
         ws.send(

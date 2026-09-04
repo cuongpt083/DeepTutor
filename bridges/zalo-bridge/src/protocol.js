@@ -47,9 +47,33 @@ export function parseOutboundMessage(raw) {
     thread_id: String(parsed.thread_id),
     thread_type: parsed.thread_type === "group" ? "group" : "user",
     text: String(parsed.text),
+    styles: Array.isArray(parsed.styles) ? parsed.styles : undefined,
     quote_id: parsed.quote_id ? String(parsed.quote_id) : undefined,
   };
 }
+
+export function parseTypingMessage(raw) {
+  let parsed;
+  try {
+    parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    throw new Error("Invalid JSON payload");
+  }
+
+  if (!parsed || parsed.type !== "typing") {
+    throw new Error(`Expected type 'typing', got '${parsed?.type}'`);
+  }
+  if (!parsed.thread_id) {
+    throw new Error("Missing thread_id in typing payload");
+  }
+
+  return {
+    type: "typing",
+    thread_id: String(parsed.thread_id),
+    thread_type: parsed.thread_type === "group" ? "group" : "user",
+  };
+}
+
 
 export function formatStatus(status, details = {}) {
   return {

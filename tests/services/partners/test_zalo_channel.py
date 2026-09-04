@@ -210,3 +210,72 @@ async def test_zalo_duplicate_connection_status(mock_bus):
     await channel._handle_bridge_message(json.dumps(status_event))
     assert channel._connected is False
     assert channel.last_error_status == "duplicate_connection"
+
+
+@pytest.mark.asyncio
+async def test_zalo_typing_indicator_lifecycle(mock_bus):
+    config = ZaloConfig(enabled=True, allow_from=["*"])
+    channel = ZaloChannel(config, mock_bus)
+    mock_ws = AsyncMock()
+    channel._ws = mock_ws
+    channel._connected = True
+
+    # 1. Inbound message triggers typing
+    msg_payload = {
+        "type": "message",
+        "id": "msg-101",
+        "thread_id": "user-999",
+        "thread_type": "user",
+        "sender_id": "user-999",
+        "content": "Need help",
+    }
+    await channel._handle_bridge_message(json.dumps(msg_payload))
+
+    assert "user-999" in channel._typing_tasks
+    typing_task = channel._typing_tasks["user-999"]
+    assert not typing_task.done()
+
+    # Wait briefly for typing message to be sent via mock_ws
+    import asyncio
+    await asyncio.sleep(0.05)
+    assert mock_ws.send.called
+    first_sent = json.loads(mock_ws.send.call_args[0][0])
+    assert first_sent["type"] == "typing"
+    assert first_sent["thread_id"] == "user-999"
+
+    # 2. Outbound message stops typing
+    outbound = OutboundMessage(
+        channel="zalo",
+        chat_id="user-999",
+        content="Here is your answer",
+    )
+    await channel.send(outbound)
+    assert "user-999" not in channel._typing_tasks
+    await asyncio.sleep(0)
+    assert typing_task.cancelled() or typing_task.done()
+
+
+@pytest.mark.asyncio
+async def test_zalo_outbound_markdown_formatting(mock_bus):
+    config = ZaloConfig(enabled=True, allow_from=["*"])
+    channel = ZaloChannel(config, mock_bus)
+    mock_ws = AsyncMock()
+    channel._ws = mock_ws
+    channel._connected = True
+
+    outbound = OutboundMessage(
+        channel="zalo",
+        chat_id="user-123",
+        content="# Tiêu đề chính\nThông tin **quan trọng**.",
+    )
+    await channel.send(outbound)
+
+    mock_ws.send.assert_called_once()
+    payload = json.loads(mock_ws.send.call_args[0][0])
+    assert payload["type"] == "send"
+    assert "📌 Tiêu đề chính" in payload["text"]
+    assert "Thông tin quan trọng." in payload["text"]
+    assert "**" not in payload["text"]
+    assert "#" not in payload["text"]
+    assert "styles" in payload
+    assert len(payload["styles"]) >= 2

@@ -92,3 +92,69 @@ test("ZaloBridgeServer responds to get_status request", async () => {
   }
 });
 
+test("ZaloBridgeServer dispatches send with styles and typing event to zaloApi", async () => {
+  const server = new ZaloBridgeServer({
+    port: 3996,
+    token: "",
+    sessionPath: "/tmp/test-zalo-session.json",
+  });
+
+  const sentMessages = [];
+  const typingEvents = [];
+  server.zaloApi = {
+    getContext: () => ({ uid: "bot_123" }),
+    sendMessage: async (payload, threadId, threadType) => {
+      sentMessages.push({ payload, threadId, threadType });
+      return { message: { msgId: 100 } };
+    },
+    sendTypingEvent: async (threadId, threadType) => {
+      typingEvents.push({ threadId, threadType });
+      return { status: 0 };
+    },
+  };
+
+  await server.start();
+
+  try {
+    const ws = new WebSocket("ws://127.0.0.1:3996");
+    await new Promise((resolve) => ws.once("open", resolve));
+
+    // Send typing
+    ws.send(
+      JSON.stringify({
+        type: "typing",
+        thread_id: "user_789",
+        thread_type: "user",
+      })
+    );
+
+    // Send styled message
+    ws.send(
+      JSON.stringify({
+        type: "send",
+        thread_id: "user_789",
+        thread_type: "user",
+        text: "Styled reply",
+        styles: [{ start: 0, len: 6, st: "b" }],
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(typingEvents.length, 1);
+    assert.equal(typingEvents[0].threadId, "user_789");
+    assert.equal(typingEvents[0].threadType, 0);
+
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0].threadId, "user_789");
+    assert.equal(sentMessages[0].payload.msg, "Styled reply");
+    assert.deepEqual(sentMessages[0].payload.styles, [
+      { start: 0, len: 6, st: "b" },
+    ]);
+
+    ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+

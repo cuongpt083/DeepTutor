@@ -13,7 +13,9 @@ from pydantic import Field
 from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
+from deeptutor.partners.channels.zalo_formatter import format_for_zalo
 from deeptutor.partners.config.schema import DeliveryOverrides
+from deeptutor.partners.helpers import split_message
 
 
 class ZaloConfig(DeliveryOverrides):
@@ -49,6 +51,7 @@ class ZaloChannel(BaseChannel):
         self._bot_display_name: str = ""
         self.last_error_status: str = ""
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self._typing_tasks: dict[str, asyncio.Task] = {}
 
     async def start(self) -> None:
         """Start the Zalo channel by connecting to the bridge."""
@@ -96,12 +99,49 @@ class ZaloChannel(BaseChannel):
         """Stop the Zalo channel."""
         self._running = False
         self._connected = False
+        for task in list(self._typing_tasks.values()):
+            task.cancel()
+        self._typing_tasks.clear()
         if self._ws:
             await self._ws.close()
             self._ws = None
 
+    def _start_typing(self, chat_id: str, thread_type: str = "user") -> None:
+        """Start sending periodic typing indicator for a chat."""
+        self._stop_typing(chat_id)
+        self._typing_tasks[chat_id] = asyncio.create_task(
+            self._typing_loop(chat_id, thread_type)
+        )
+
+    def _stop_typing(self, chat_id: str) -> None:
+        """Stop the typing indicator for a chat."""
+        task = self._typing_tasks.pop(chat_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _typing_loop(self, chat_id: str, thread_type: str) -> None:
+        """Periodically send typing indicator to Zalo until stopped or timed out."""
+        elapsed = 0.0
+        try:
+            while elapsed < 120.0:
+                if self._ws and self._connected:
+                    payload = {
+                        "type": "typing",
+                        "thread_id": chat_id,
+                        "thread_type": thread_type,
+                    }
+                    await self._ws.send(json.dumps(payload, ensure_ascii=False))
+                await asyncio.sleep(4.0)
+                elapsed += 4.0
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug("Zalo typing loop stopped for {}: {}", chat_id, e)
+
     async def send(self, msg: OutboundMessage) -> None:
         """Deliver an outbound response message through the Zalo bridge."""
+        self._stop_typing(msg.chat_id)
+
         if not self._ws or not self._connected:
             raise RuntimeError("Zalo bridge is not connected")
 
@@ -109,16 +149,28 @@ class ZaloChannel(BaseChannel):
         thread_type = metadata.get("thread_type", "user")
         quote_id = metadata.get("origin_message_id") if self.config.reply_with_quote else None
 
-        payload: dict[str, Any] = {
-            "type": "send",
-            "thread_id": msg.chat_id,
-            "thread_type": thread_type,
-            "text": msg.content,
-        }
-        if quote_id:
-            payload["quote_id"] = quote_id
+        raw_content = msg.content or ""
+        chunks = (
+            split_message(raw_content, max_len=1800)
+            if len(raw_content) > 1800
+            else [raw_content]
+        )
 
-        await self._ws.send(json.dumps(payload, ensure_ascii=False))
+        for idx, chunk in enumerate(chunks):
+            text, styles = format_for_zalo(chunk)
+            payload: dict[str, Any] = {
+                "type": "send",
+                "thread_id": msg.chat_id,
+                "thread_type": thread_type,
+                "text": text,
+            }
+            if styles:
+                payload["styles"] = styles
+            if idx == 0 and quote_id:
+                payload["quote_id"] = quote_id
+
+            await self._ws.send(json.dumps(payload, ensure_ascii=False))
+
 
     def _is_mentioned(self, mentions: list[dict[str, Any]]) -> bool:
         """Check if bot UID is among mentions."""
@@ -191,6 +243,8 @@ class ZaloChannel(BaseChannel):
                 "sender_name": data.get("sender_name", ""),
                 "timestamp": data.get("timestamp"),
             }
+
+            self._start_typing(thread_id, thread_type)
 
             await self._handle_message(
                 sender_id=sender_id,

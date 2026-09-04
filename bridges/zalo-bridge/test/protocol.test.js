@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   formatInboundMessage,
   parseOutboundMessage,
+  parseTypingMessage,
   formatStatus,
   formatQrEvent,
 } from "../src/protocol.js";
@@ -89,4 +90,30 @@ test("formatQrEvent formats qr code payload", () => {
   assert.equal(qr.type, "qr_generated");
   assert.equal(qr.data.qr_data_url, "data:image/png;base64,xyz");
   assert.equal(qr.data.token, "tok_1");
+});
+
+test("parseOutboundMessage preserves styles array", () => {
+  const raw = JSON.stringify({
+    type: "send",
+    thread_id: "user_456",
+    thread_type: "user",
+    text: "Bold text",
+    styles: [{ start: 0, len: 4, st: "b" }],
+  });
+
+  const parsed = parseOutboundMessage(raw);
+  assert.deepEqual(parsed.styles, [{ start: 0, len: 4, st: "b" }]);
+});
+
+test("parseTypingMessage parses typing payload correctly", () => {
+  const raw = JSON.stringify({
+    type: "typing",
+    thread_id: "user_456",
+    thread_type: "group",
+  });
+
+  const parsed = parseTypingMessage(raw);
+  assert.equal(parsed.type, "typing");
+  assert.equal(parsed.thread_id, "user_456");
+  assert.equal(parsed.thread_type, "group");
 });
