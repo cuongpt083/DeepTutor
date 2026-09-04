@@ -100,3 +100,34 @@ def test_utf16_offsets_with_emojis():
     b_style = next(s for s in styles if s["st"] == "b")
     assert b_style["start"] == 8
     assert b_style["len"] == utf16_len("bạn")
+
+
+def test_format_br_tags():
+    # 1. Plain text with <br>, <br/>, <br /> and case insensitivity
+    md = "Dòng 1<br>Dòng 2<br/>Dòng 3<br />Dòng 4<BR>Dòng 5"
+    text, styles = format_for_zalo(md)
+    assert text == "Dòng 1\nDòng 2\nDòng 3\nDòng 4\nDòng 5"
+
+    # 2. Consecutive <br><br> creates empty line separation
+    md_consecutive = "Đoạn 1<br><br>Đoạn 2"
+    text_c, _ = format_for_zalo(md_consecutive)
+    assert text_c == "Đoạn 1\n\nĐoạn 2"
+
+    # 3. <br> inside lists
+    md_list = "- Mục 1<br>- Mục 2"
+    text_l, _ = format_for_zalo(md_list)
+    assert "• Mục 1\n• Mục 2" in text_l
+
+    # 4. <br> inside tables
+    md_table = """| Cột A | Cột B |
+| --- | --- |
+| Giá trị 1 | Chi tiết A<br>Chi tiết B |"""
+    text_t, _ = format_for_zalo(md_table)
+    assert "• Cột A: Giá trị 1 · Cột B: Chi tiết A\n  Chi tiết B" in text_t
+    assert "<br>" not in text_t
+
+    # 5. <br> inside code block should remain verbatim
+    md_code = "```html\n<div><br>Nội dung</div>\n```"
+    text_code, _ = format_for_zalo(md_code)
+    assert "<div><br>Nội dung</div>" in text_code
+

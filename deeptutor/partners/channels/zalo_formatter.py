@@ -70,9 +70,17 @@ def format_for_zalo(content: str) -> tuple[str, list[dict[str, Any]]]:
         converted = convert_markdown_table_to_labeled_rows(tbl_text)
         for row in converted.split("\n"):
             if row.strip():
-                processed_lines.append(
-                    {"text": f"• {row.strip()}", "line_styles": [], "verbatim": False}
-                )
+                clean_row = re.sub(r"(?i)[ \t]*<br\s*/?>[ \t]*", "\n  ", row.strip())
+                for subline in clean_row.split("\n"):
+                    if subline.strip():
+                        if not subline.startswith("  ") and not subline.startswith("•"):
+                            processed_lines.append(
+                                {"text": f"• {subline.strip()}", "line_styles": [], "verbatim": False}
+                            )
+                        else:
+                            processed_lines.append(
+                                {"text": subline, "line_styles": [], "verbatim": False}
+                            )
 
     for line in raw_lines:
         stripped = line.strip()
@@ -104,67 +112,76 @@ def format_for_zalo(content: str) -> tuple[str, list[dict[str, Any]]]:
         else:
             flush_table()
 
-        # Horizontal rule (---, ***, ___)
-        if re.match(r"^\s*[-*_]{3,}\s*$", line):
-            processed_lines.append(
-                {"text": "───────────────────", "line_styles": [], "verbatim": True}
-            )
-            continue
+        # Convert <br> tags in non-code, non-table lines into multiple lines
+        sublines = (
+            re.split(r"(?i)[ \t]*<br\s*/?>[ \t]*", line)
+            if re.search(r"(?i)<br\s*/?>", line)
+            else [line]
+        )
 
-        # Headings
-        h1_m = re.match(r"^#\s+(.*)$", line)
-        if h1_m:
-            processed_lines.append(
-                {
-                    "text": f"📌 {h1_m.group(1).strip()}",
-                    "line_styles": ["b", "f_18"],
-                    "verbatim": False,
-                }
-            )
-            continue
+        for subline in sublines:
+            # Horizontal rule (---, ***, ___)
+            if re.match(r"^\s*[-*_]{3,}\s*$", subline):
+                processed_lines.append(
+                    {"text": "───────────────────", "line_styles": [], "verbatim": True}
+                )
+                continue
 
-        h2_m = re.match(r"^##\s+(.*)$", line)
-        if h2_m:
-            processed_lines.append(
-                {
-                    "text": f"📌 {h2_m.group(1).strip()}",
-                    "line_styles": ["b"],
-                    "verbatim": False,
-                }
-            )
-            continue
+            # Headings
+            h1_m = re.match(r"^#\s+(.*)$", subline)
+            if h1_m:
+                processed_lines.append(
+                    {
+                        "text": f"📌 {h1_m.group(1).strip()}",
+                        "line_styles": ["b", "f_18"],
+                        "verbatim": False,
+                    }
+                )
+                continue
 
-        h3_m = re.match(r"^###+\s+(.*)$", line)
-        if h3_m:
-            processed_lines.append(
-                {
-                    "text": f"🔹 {h3_m.group(1).strip()}",
-                    "line_styles": ["b"],
-                    "verbatim": False,
-                }
-            )
-            continue
+            h2_m = re.match(r"^##\s+(.*)$", subline)
+            if h2_m:
+                processed_lines.append(
+                    {
+                        "text": f"📌 {h2_m.group(1).strip()}",
+                        "line_styles": ["b"],
+                        "verbatim": False,
+                    }
+                )
+                continue
 
-        # Blockquote (> quote)
-        bq_m = re.match(r"^>\s*(.*)$", line)
-        if bq_m:
-            processed_lines.append(
-                {"text": f"▎ {bq_m.group(1)}", "line_styles": ["i"], "verbatim": False}
-            )
-            continue
+            h3_m = re.match(r"^###+\s+(.*)$", subline)
+            if h3_m:
+                processed_lines.append(
+                    {
+                        "text": f"🔹 {h3_m.group(1).strip()}",
+                        "line_styles": ["b"],
+                        "verbatim": False,
+                    }
+                )
+                continue
 
-        # Bullet lists (-, *, +)
-        li_m = re.match(r"^(\s*)[*+-]\s+(.*)$", line)
-        if li_m:
-            indent = li_m.group(1)
-            item = li_m.group(2)
-            processed_lines.append(
-                {"text": f"{indent}• {item}", "line_styles": [], "verbatim": False}
-            )
-            continue
+            # Blockquote (> quote)
+            bq_m = re.match(r"^>\s*(.*)$", subline)
+            if bq_m:
+                processed_lines.append(
+                    {"text": f"▎ {bq_m.group(1)}", "line_styles": ["i"], "verbatim": False}
+                )
+                continue
 
-        # Standard line
-        processed_lines.append({"text": line, "line_styles": [], "verbatim": False})
+            # Bullet lists (-, *, +)
+            li_m = re.match(r"^(\s*)[*+-]\s+(.*)$", subline)
+            if li_m:
+                indent = li_m.group(1)
+                item = li_m.group(2)
+                processed_lines.append(
+                    {"text": f"{indent}• {item}", "line_styles": [], "verbatim": False}
+                )
+                continue
+
+            # Standard line
+            processed_lines.append({"text": subline, "line_styles": [], "verbatim": False})
+
 
     flush_table()
 
