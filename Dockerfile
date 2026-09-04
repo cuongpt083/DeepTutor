@@ -59,6 +59,28 @@ RUN npm run build
 FROM node:22-slim AS node-runtime
 
 # ============================================
+# Stage 1c: Zalo Bridge Builder
+# ============================================
+# Builds dependencies for the Node.js Zalo WebSocket bridge
+FROM --platform=$BUILDPLATFORM node:22-slim AS zalo-bridge-builder
+
+WORKDIR /app/bridges/zalo-bridge
+
+# Git and certificates are required for GitHub-sourced packages (zca-js)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY bridges/zalo-bridge/package.json bridges/zalo-bridge/package-lock.json* ./
+
+RUN npm config set fetch-timeout 600000 && \
+    npm config set fetch-retries 5 && \
+    (npm ci --omit=dev || npm install --omit=dev)
+
+COPY bridges/zalo-bridge/src/ ./src/
+
+# ============================================
 # Stage 2: Python Base with Dependencies
 # ============================================
 FROM python:3.11-slim AS python-base
@@ -163,6 +185,9 @@ COPY --from=frontend-builder /app/web/.next/standalone/ ./web/
 COPY --from=frontend-builder /app/web/.next/static/ ./web/.next/static/
 COPY --from=frontend-builder /app/web/public/ ./web/public/
 
+# Copy Zalo Bridge from zalo-bridge-builder stage
+COPY --from=zalo-bridge-builder /app/bridges/zalo-bridge ./bridges/zalo-bridge
+
 # Copy application source code
 COPY deeptutor/ ./deeptutor/
 COPY deeptutor_cli/ ./deeptutor_cli/
@@ -174,6 +199,7 @@ COPY requirements.txt ./
 # Create necessary directories (these will be overwritten by volume mounts)
 RUN mkdir -p \
     data/user/settings \
+    data/user/partners \
     data/memory \
     data/user/workspace/memory \
     data/user/workspace/notebook \
@@ -197,7 +223,7 @@ RUN mkdir -p \
 # keep-id with a bind mount on ./data.
 RUN groupadd --system --gid 1000 deeptutor \
     && useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin deeptutor \
-    && chown -R deeptutor:deeptutor /app/data /app/web/.next
+    && chown -R deeptutor:deeptutor /app/data /app/web/.next /app/bridges
 
 # supervisord config is split into two files so the production and development
 # images share one daemon-level [supervisord] section instead of duplicating it:
@@ -256,6 +282,18 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 environment=NODE_ENV="production"
+
+[program:zalo-bridge]
+command=/bin/bash /app/start-zalo-bridge.sh
+directory=/app/bridges/zalo-bridge
+user=deeptutor
+autostart=true
+autorestart=true
+startsecs=3
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
 EOF
 
 RUN sed -i 's/\r$//' /etc/supervisor/conf.d/programs.conf
@@ -313,6 +351,32 @@ exec node /app/web/server.js
 EOF
 
 RUN sed -i 's/\r$//' /app/start-frontend.sh && chmod +x /app/start-frontend.sh
+
+# Create Zalo bridge startup script
+RUN cat > /app/start-zalo-bridge.sh <<'EOF'
+#!/bin/bash
+set -e
+
+if [ "${ZALO_BRIDGE_ENABLED:-true}" = "false" ] || [ "${ZALO_BRIDGE_ENABLED:-true}" = "0" ]; then
+    echo "[Zalo Bridge] ⏸️  Zalo Bridge disabled (ZALO_BRIDGE_ENABLED=false)"
+    exec sleep infinity
+fi
+
+ZALO_BRIDGE_PORT=${ZALO_BRIDGE_PORT:-3002}
+ZALO_BRIDGE_HOST=${ZALO_BRIDGE_HOST:-127.0.0.1}
+SESSION_PATH=${SESSION_PATH:-/app/data/user/partners/zalo_session.json}
+
+echo "[Zalo Bridge] 🚀 Starting Zalo WebSocket bridge on ${ZALO_BRIDGE_HOST}:${ZALO_BRIDGE_PORT}..."
+
+export PORT=${ZALO_BRIDGE_PORT}
+export HOST=${ZALO_BRIDGE_HOST}
+export SESSION_PATH=${SESSION_PATH}
+export BRIDGE_TOKEN=${ZALO_BRIDGE_TOKEN:-}
+
+exec node /app/bridges/zalo-bridge/src/server.js
+EOF
+
+RUN sed -i 's/\r$//' /app/start-zalo-bridge.sh && chmod +x /app/start-zalo-bridge.sh
 
 # Create entrypoint script
 RUN cat > /app/entrypoint.sh <<'EOF'
@@ -464,7 +528,7 @@ urllib.request.urlopen(f"http://localhost:{port}/", timeout=5).close()
 EOF
 
 # Expose ports
-EXPOSE 8001 3782
+EXPOSE 8001 3782 3002
 
 # Health check. Read the port from JSON so standalone `docker run` does not
 # depend on a Dockerfile-level BACKEND_PORT default.
@@ -539,9 +603,21 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 environment=NODE_ENV="development"
+
+[program:zalo-bridge]
+command=/bin/bash /app/start-zalo-bridge.sh
+directory=/app/bridges/zalo-bridge
+user=deeptutor
+autostart=true
+autorestart=true
+startsecs=3
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
 EOF
 
 RUN sed -i 's/\r$//' /etc/supervisor/conf.d/programs.conf
 
 # Development ports
-EXPOSE 8001 3782
+EXPOSE 8001 3782 3002

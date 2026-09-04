@@ -16,6 +16,7 @@ deeptutor/services/rag/eg_only_for_analysis/
 /site/
 .claude
 .agents/
+bridges/**/session*.json
 
 # LaTeX build artifacts
 *.aux

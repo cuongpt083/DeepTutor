@@ -37,6 +37,9 @@ services:
       - ./web/locales:/app/web/locales:ro
       - ./web/public:/app/web/public:ro
 
+      # Mount bridges for development
+      - ./bridges/zalo-bridge/src:/app/bridges/zalo-bridge/src:ro
+
       # Mount data directories (writable) - output to local ./data
       - ./data/user:/app/data/user
       - ./data/memory:/app/data/memory
