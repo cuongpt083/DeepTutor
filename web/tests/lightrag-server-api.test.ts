@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   connectLightRagServer,
   probeLightRagServer,
-} from "../lib/knowledge-api";
+} from "../features/knowledge/api/client";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
