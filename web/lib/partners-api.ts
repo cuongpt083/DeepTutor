@@ -329,7 +329,7 @@ export interface ChannelsSchemaResponse {
   channels: Record<string, ChannelSchemaEntry>;
 }
 
-export type PartnerChannelOnboardingChannel = "feishu" | "wecom";
+export type PartnerChannelOnboardingChannel = "feishu" | "wecom" | "zalo";
 
 export type PartnerChannelOnboardingStatus =
   | "pending_scan"
@@ -357,7 +357,10 @@ export function supportsChannelOnboarding(
   channel: string,
   available: boolean | undefined,
 ): boolean {
-  return available !== false && (channel === "feishu" || channel === "wecom");
+  return (
+    available !== false &&
+    (channel === "feishu" || channel === "wecom" || channel === "zalo")
+  );
 }
 
 export async function startChannelOnboarding(

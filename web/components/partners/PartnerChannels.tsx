@@ -14,6 +14,7 @@ import {
   supportsChannelOnboarding,
   getChannelSchemas,
   type ChannelsSchemaResponse,
+  type PartnerChannelOnboardingChannel,
 } from "@/lib/partners-api";
 import {
   SchemaField,
@@ -287,7 +288,7 @@ export default function PartnerChannels({
                   ) && (
                     <ChannelOnboardingPanel
                       partnerId={partnerId}
-                      channel={activeChannel === "wecom" ? "wecom" : "feishu"}
+                      channel={activeChannel as PartnerChannelOnboardingChannel}
                       onApplied={loadDetail}
                       onToast={onToast}
                     />

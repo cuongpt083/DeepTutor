@@ -45,9 +45,11 @@ function stubFetch(body: unknown): {
   };
 }
 
-test("QR onboarding is exposed only for available Feishu and WeCom", () => {
+test("QR onboarding is exposed only for available Feishu, WeCom, and Zalo", () => {
   assert.equal(supportsChannelOnboarding("feishu", true), true);
   assert.equal(supportsChannelOnboarding("wecom", undefined), true);
+  assert.equal(supportsChannelOnboarding("zalo", true), true);
+  assert.equal(supportsChannelOnboarding("zalo", false), false);
   assert.equal(supportsChannelOnboarding("feishu", false), false);
   assert.equal(supportsChannelOnboarding("telegram", true), false);
 });
