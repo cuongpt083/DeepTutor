@@ -30,7 +30,7 @@
 - Consumes: `deeptutor.partners.channels.base.BaseChannel`, `deeptutor.partners.config.schema.DeliveryOverrides`
 - Produces: `ZaloConfig`, `ZaloChannel` auto-discovered by `deeptutor.partners.channels.registry`
 
-- [ ] **Step 1: Write the failing test for ZaloConfig and channel discovery**
+- [x] **Step 1: Write the failing test for ZaloConfig and channel discovery**
 
 Create `tests/services/partners/test_zalo_channel.py`:
 ```python
@@ -88,12 +88,12 @@ def test_zalo_channel_discovery():
     assert "zalo" in discover_all()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `/home/cuongpt/DeepTutor/.venv/bin/pytest tests/services/partners/test_zalo_channel.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'deeptutor.partners.channels.zalo'`
 
-- [ ] **Step 3: Implement ZaloConfig and skeleton ZaloChannel**
+- [x] **Step 3: Implement ZaloConfig and skeleton ZaloChannel**
 
 Create `deeptutor/partners/channels/zalo.py`:
 ```python
@@ -155,12 +155,12 @@ class ZaloChannel(BaseChannel):
         pass
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `/home/cuongpt/DeepTutor/.venv/bin/pytest tests/services/partners/test_zalo_channel.py -v`
 Expected: PASS (4 passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add deeptutor/partners/channels/zalo.py tests/services/partners/test_zalo_channel.py
@@ -179,7 +179,7 @@ git commit -m "feat(partners): add ZaloConfig and skeleton ZaloChannel"
 - Consumes: `deeptutor.partners.bus.events.InboundMessage`, `deeptutor.partners.bus.events.OutboundMessage`
 - Produces: Complete `start()`, `stop()`, `send()`, and `_handle_bridge_message()` with reconnect and group policies
 
-- [ ] **Step 1: Write failing tests for inbound and outbound messaging**
+- [x] **Step 1: Write failing tests for inbound and outbound messaging**
 
 Append to `tests/services/partners/test_zalo_channel.py`:
 ```python
@@ -347,12 +347,12 @@ async def test_zalo_duplicate_connection_status(mock_bus):
     assert channel.last_error_status == "duplicate_connection"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `/home/cuongpt/DeepTutor/.venv/bin/pytest tests/services/partners/test_zalo_channel.py -k "test_zalo_inbound or test_zalo_outbound or test_zalo_duplicate" -v`
 Expected: FAIL with missing methods and attributes.
 
-- [ ] **Step 3: Implement full ZaloChannel communication logic**
+- [x] **Step 3: Implement full ZaloChannel communication logic**
 
 Replace `deeptutor/partners/channels/zalo.py`:
 ```python
@@ -558,12 +558,12 @@ class ZaloChannel(BaseChannel):
             )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `/home/cuongpt/DeepTutor/.venv/bin/pytest tests/services/partners/test_zalo_channel.py -v`
 Expected: PASS (10 passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add deeptutor/partners/channels/zalo.py tests/services/partners/test_zalo_channel.py
@@ -583,7 +583,7 @@ git commit -m "feat(partners): implement ZaloChannel inbound/outbound communicat
 - Consumes: JSON data from clients and ZCA JS event objects
 - Produces: `formatInboundMessage`, `parseOutboundMessage`, `formatStatus`, `formatQrEvent`
 
-- [ ] **Step 1: Create package.json and write failing protocol unit tests**
+- [x] **Step 1: Create package.json and write failing protocol unit tests**
 
 Create `bridges/zalo-bridge/package.json`:
 ```json
@@ -701,12 +701,12 @@ test("formatQrEvent formats qr code payload", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --test bridges/zalo-bridge/test/protocol.test.js`
 Expected: FAIL with `Cannot find module '../src/protocol.js'`
 
-- [ ] **Step 3: Implement bridges/zalo-bridge/src/protocol.js**
+- [x] **Step 3: Implement bridges/zalo-bridge/src/protocol.js**
 
 Create `bridges/zalo-bridge/src/protocol.js`:
 ```javascript
@@ -788,12 +788,12 @@ export function formatQrEvent(type, data = {}) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node --test bridges/zalo-bridge/test/protocol.test.js`
 Expected: PASS (all 5 tests passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bridges/zalo-bridge/package.json bridges/zalo-bridge/src/protocol.js bridges/zalo-bridge/test/protocol.test.js
@@ -812,7 +812,7 @@ git commit -m "feat(zalo-bridge): scaffold package and wire protocol"
 - Consumes: WebSocket connections from DeepTutor, `zca-js` events
 - Produces: Running WebSocket server listening on `PORT` (default `3002`)
 
-- [ ] **Step 1: Write integration test for the bridge server**
+- [x] **Step 1: Write integration test for the bridge server**
 
 Create `bridges/zalo-bridge/test/server.test.js`:
 ```javascript
@@ -881,12 +881,12 @@ test("ZaloBridgeServer rejects invalid token", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --test bridges/zalo-bridge/test/server.test.js`
 Expected: FAIL with `Cannot find module '../src/server.js'`
 
-- [ ] **Step 3: Implement bridges/zalo-bridge/src/server.js**
+- [x] **Step 3: Implement bridges/zalo-bridge/src/server.js**
 
 Create `bridges/zalo-bridge/src/server.js`:
 ```javascript
@@ -1140,12 +1140,12 @@ if (process.argv[1] === import.meta.filename) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node --test bridges/zalo-bridge/test/server.test.js`
 Expected: PASS (all tests passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add bridges/zalo-bridge/src/server.js bridges/zalo-bridge/test/server.test.js
@@ -1164,7 +1164,7 @@ git commit -m "feat(zalo-bridge): implement ZaloBridgeServer with session and QR
 - Consumes: `ChannelOnboardingManager`, `ZaloConfig`
 - Produces: Full QR onboarding session flow for `channel="zalo"`
 
-- [ ] **Step 1: Write unit test for Zalo onboarding provider**
+- [x] **Step 1: Write unit test for Zalo onboarding provider**
 
 Create `tests/services/partners/test_zalo_onboarding.py`:
 ```python
@@ -1209,12 +1209,12 @@ async def test_zalo_onboarding_session_lifecycle():
         assert applied.status == "applied"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `/home/cuongpt/DeepTutor/.venv/bin/pytest tests/services/partners/test_zalo_onboarding.py -v`
 Expected: FAIL with `ChannelOnboardingError` or unknown channel "zalo".
 
-- [ ] **Step 3: Update channel_onboarding.py to support zalo**
+- [x] **Step 3: Update channel_onboarding.py to support zalo**
 
 Update `deeptutor/services/partners/channel_onboarding.py` to add `zalo` to `ChannelName = Literal["feishu", "wecom", "zalo"]` and implement `_request_zalo_qr`:
 ```python
@@ -1228,12 +1228,12 @@ async def _request_zalo_qr(self, partner_id: str) -> dict[str, Any]:
     ...
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `/home/cuongpt/DeepTutor/.venv/bin/pytest tests/services/partners/test_zalo_onboarding.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add deeptutor/services/partners/channel_onboarding.py tests/services/partners/test_zalo_onboarding.py
@@ -1254,7 +1254,7 @@ git commit -m "feat(partners): support Zalo in ChannelOnboardingManager"
 - Consumes: Zalo SVG icon definition, `supportsChannelOnboarding`
 - Produces: Zalo icon display in channels tab, QR onboarding trigger
 
-- [ ] **Step 1: Write test assertion for Zalo onboarding support in web**
+- [x] **Step 1: Write test assertion for Zalo onboarding support in web**
 
 Update `web/tests/partners-channel-onboarding.test.ts`:
 Add assertion:
@@ -1263,12 +1263,12 @@ assert.equal(supportsChannelOnboarding("zalo", true), true);
 assert.equal(supportsChannelOnboarding("zalo", false), false);
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node --test web/tests/partners-channel-onboarding.test.ts`
 Expected: FAIL with `AssertionError: false == true`
 
-- [ ] **Step 3: Implement Zalo icon and web types**
+- [x] **Step 3: Implement Zalo icon and web types**
 
 1. In `web/lib/partners-api.ts`:
    Update:
@@ -1304,12 +1304,12 @@ Expected: FAIL with `AssertionError: false == true`
    },
    ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node --test web/tests/partners-channel-onboarding.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/components/partners/ChannelIcon.tsx web/lib/partners-api.ts web/components/partners/PartnerChannels.tsx web/tests/partners-channel-onboarding.test.ts
