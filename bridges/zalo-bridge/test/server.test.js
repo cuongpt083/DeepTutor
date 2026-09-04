@@ -92,6 +92,41 @@ test("ZaloBridgeServer responds to get_status request", async () => {
   }
 });
 
+test("ZaloBridgeServer sends connected status with userId and displayName on connection", async () => {
+  const server = new ZaloBridgeServer({
+    port: 3994,
+    token: "",
+    sessionPath: "/tmp/test-zalo-session.json",
+  });
+  server.zaloApi = {
+    getOwnId: () => "bot_555",
+    getContext: () => ({ uid: "bot_555" }),
+  };
+  server.botDisplayName = "NutriTech Bot";
+
+  await server.start();
+
+  try {
+    const ws = new WebSocket("ws://127.0.0.1:3994");
+    const statusMsg = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timeout")), 1000);
+      ws.once("message", (msg) => {
+        clearTimeout(timer);
+        resolve(JSON.parse(msg.toString()));
+      });
+    });
+
+    assert.equal(statusMsg.type, "status");
+    assert.equal(statusMsg.status, "connected");
+    assert.equal(statusMsg.user_id, "bot_555");
+    assert.equal(statusMsg.display_name, "NutriTech Bot");
+
+    ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+
 test("ZaloBridgeServer dispatches send with styles and typing event to zaloApi", async () => {
   const server = new ZaloBridgeServer({
     port: 3996,

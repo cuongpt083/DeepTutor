@@ -27,6 +27,14 @@ class ZaloConfig(DeliveryOverrides):
     allow_from: list[str] = Field(default_factory=list)
     group_policy: Literal["open", "mention", "allowlist"] = "mention"
     group_allow_from: list[str] = Field(default_factory=list)
+    bot_user_id: str = Field(
+        default="",
+        description="Zalo UID of the bot account. Auto-detected from bridge, but can be manually set.",
+    )
+    bot_name: str = Field(
+        default="",
+        description="Display name or alias of the bot for text @name mentions in group chat.",
+    )
     reply_with_quote: bool = True
 
 
@@ -75,6 +83,10 @@ class ZaloChannel(BaseChannel):
                                 ensure_ascii=False,
                             )
                         )
+                    # Proactively request current bridge status and bot identity
+                    await ws.send(
+                        json.dumps({"type": "get_status"}, ensure_ascii=False)
+                    )
                     self._connected = True
                     self.last_error_status = ""
                     backoff = 1.0
@@ -204,13 +216,38 @@ class ZaloChannel(BaseChannel):
 
 
 
-    def _is_mentioned(self, mentions: list[dict[str, Any]]) -> bool:
-        """Check if bot UID is among mentions."""
-        if not self._bot_user_id:
-            return True
-        for m in mentions:
-            if str(m.get("uid")) == str(self._bot_user_id):
+    def _is_mentioned(
+        self,
+        mentions: list[dict[str, Any]],
+        content: str = "",
+        quote: dict[str, Any] | None = None,
+    ) -> bool:
+        """Check if bot UID is among mentions, quoted in reply, or named in text."""
+        bot_uid = str(self.config.bot_user_id or self._bot_user_id or "").strip()
+        bot_name = str(self.config.bot_name or self._bot_display_name or "").strip()
+
+        if not bot_uid and not bot_name:
+            return False
+
+        # 1. Native Zalo mention in mentions array
+        if bot_uid:
+            for m in mentions:
+                uid = str(m.get("uid") or "")
+                # Exclude group-wide mentions (@all has UID "-1" or "0")
+                if uid and uid not in ("-1", "0") and uid == bot_uid:
+                    return True
+
+        # 2. Quote/reply to a message sent by the bot
+        if quote and bot_uid:
+            owner_id = str(quote.get("ownerId") or quote.get("uidFrom") or "")
+            if owner_id == bot_uid:
                 return True
+
+        # 3. Fallback: text mention @BotName in message content
+        if bot_name:
+            if f"@{bot_name.lower()}" in content.lower():
+                return True
+
         return False
 
     async def _handle_bridge_message(self, raw: str) -> None:
@@ -258,6 +295,7 @@ class ZaloChannel(BaseChannel):
             sender_id = str(data.get("sender_id") or thread_id)
             content = str(data.get("content") or "")
             mentions = data.get("mentions") or []
+            quote = data.get("quote")
 
             is_group = (thread_type == "group")
             chat_id = f"group:{thread_id}" if is_group else thread_id
@@ -269,7 +307,7 @@ class ZaloChannel(BaseChannel):
                     if thread_id not in self.config.group_allow_from:
                         return
                 elif policy == "mention":
-                    if not self._is_mentioned(mentions):
+                    if not self._is_mentioned(mentions, content=content, quote=quote):
                         return
 
             self._chat_thread_types[thread_id] = thread_type

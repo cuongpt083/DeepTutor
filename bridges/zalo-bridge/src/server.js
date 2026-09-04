@@ -23,6 +23,7 @@ export class ZaloBridgeServer {
     this.currentQrData = null;
     this.currentLoginActions = null;
     this.recentMessages = new Map();
+    this.botDisplayName = null;
   }
 
   async start() {
@@ -30,6 +31,12 @@ export class ZaloBridgeServer {
 
     this.wss.on("connection", (ws) => {
       let authenticated = !this.token;
+
+      this.clients.add(ws);
+
+      if (authenticated) {
+        this.sendCurrentStatus(ws);
+      }
 
       ws.on("message", async (raw) => {
         try {
@@ -69,8 +76,6 @@ export class ZaloBridgeServer {
       ws.on("close", () => {
         this.clients.delete(ws);
       });
-
-      this.clients.add(ws);
     });
 
     console.log(`Zalo Bridge running on ws://${this.host}:${this.port}`);
@@ -78,10 +83,12 @@ export class ZaloBridgeServer {
 
   sendCurrentStatus(ws) {
     if (this.zaloApi) {
+      const uid = this.zaloApi.getOwnId?.() || this.zaloApi.getContext?.()?.uid;
       ws.send(
         JSON.stringify(
           formatStatus("connected", {
-            userId: this.zaloApi.getContext?.()?.uid,
+            userId: uid,
+            displayName: this.botDisplayName,
           })
         )
       );
@@ -217,9 +224,17 @@ export class ZaloBridgeServer {
         console.log("Found existing credentials, logging in via cookies...");
         this.zaloApi = await zalo.login(credentials);
         this.bindListener(this.zaloApi);
+        try {
+          const info = await this.zaloApi.fetchAccountInfo?.();
+          this.botDisplayName =
+            info?.profile?.displayName || info?.profile?.zaloName || null;
+        } catch {}
+        const uid =
+          this.zaloApi.getOwnId?.() || this.zaloApi.getContext?.()?.uid;
         this.broadcast(
           formatStatus("connected", {
-            userId: this.zaloApi.getContext?.()?.uid,
+            userId: uid,
+            displayName: this.botDisplayName,
           })
         );
       } else {
@@ -304,9 +319,17 @@ export class ZaloBridgeServer {
       this.loginState = "idle";
       this.currentQrData = null;
       this.currentLoginActions = null;
+      try {
+        const info = await this.zaloApi.fetchAccountInfo?.();
+        this.botDisplayName =
+          info?.profile?.displayName || info?.profile?.zaloName || null;
+      } catch {}
+      const uid =
+        this.zaloApi.getOwnId?.() || this.zaloApi.getContext?.()?.uid;
       this.broadcast(
         formatStatus("connected", {
-          userId: this.zaloApi.getContext?.()?.uid,
+          userId: uid,
+          displayName: this.botDisplayName,
         })
       );
     } catch (err) {

@@ -22,6 +22,8 @@ def test_zalo_config_defaults():
     assert config.allow_from == []
     assert config.group_policy == "mention"
     assert config.group_allow_from == []
+    assert config.bot_user_id == ""
+    assert config.bot_name == ""
     assert config.reply_with_quote is True
     assert config.send_progress is True
     assert config.send_tool_hints is True
@@ -34,6 +36,8 @@ def test_zalo_config_custom_values():
         bridge_token="secret-123",
         allow_from=["uid_user_1", "uid_user_2"],
         group_policy="open",
+        bot_user_id="bot-custom-id",
+        bot_name="NutriTech",
         reply_with_quote=False,
     )
     assert config.enabled is True
@@ -41,6 +45,8 @@ def test_zalo_config_custom_values():
     assert config.bridge_token == "secret-123"
     assert config.allow_from == ["uid_user_1", "uid_user_2"]
     assert config.group_policy == "open"
+    assert config.bot_user_id == "bot-custom-id"
+    assert config.bot_name == "NutriTech"
     assert config.reply_with_quote is False
 
 
@@ -119,9 +125,25 @@ async def test_zalo_inbound_ignores_self_message(mock_bus):
 async def test_zalo_inbound_group_mention_policy(mock_bus):
     config = ZaloConfig(enabled=True, allow_from=["*"], group_policy="mention")
     channel = ZaloChannel(config, mock_bus)
+
+    # 1. When _bot_user_id is not yet known, group messages MUST be ignored (not auto-responded)
+    no_bot_id_msg = {
+        "type": "message",
+        "id": "msg-002b",
+        "thread_id": "group-456",
+        "thread_type": "group",
+        "sender_id": "user-123",
+        "content": "Hello everyone",
+        "is_self": False,
+        "mentions": [],
+    }
+    await channel._handle_bridge_message(json.dumps(no_bot_id_msg))
+    mock_bus.publish_inbound.assert_not_called()
+
+    # Set bot user ID
     channel._bot_user_id = "bot-999"
 
-    # Message without mention -> ignored
+    # 2. Message without mention -> ignored
     no_mention = {
         "type": "message",
         "id": "msg-003",
@@ -135,7 +157,21 @@ async def test_zalo_inbound_group_mention_policy(mock_bus):
     await channel._handle_bridge_message(json.dumps(no_mention))
     mock_bus.publish_inbound.assert_not_called()
 
-    # Message with bot mention -> accepted
+    # 3. Message with @all (uid: "-1" or "0") -> ignored
+    all_mention = {
+        "type": "message",
+        "id": "msg-003b",
+        "thread_id": "group-456",
+        "thread_type": "group",
+        "sender_id": "user-123",
+        "content": "@all Meeting at 3pm",
+        "is_self": False,
+        "mentions": [{"uid": "-1", "pos": 0, "len": 4}],
+    }
+    await channel._handle_bridge_message(json.dumps(all_mention))
+    mock_bus.publish_inbound.assert_not_called()
+
+    # 4. Message with bot mention -> accepted
     with_mention = {
         "type": "message",
         "id": "msg-004",
@@ -152,6 +188,40 @@ async def test_zalo_inbound_group_mention_policy(mock_bus):
     assert inbound.chat_id == "group:group-456"
     assert inbound.metadata["thread_type"] == "group"
     assert inbound.metadata["is_group"] is True
+
+    mock_bus.publish_inbound.reset_mock()
+
+    # 5. Message replying (quoting) a message sent by the bot -> accepted
+    quote_reply = {
+        "type": "message",
+        "id": "msg-004b",
+        "thread_id": "group-456",
+        "thread_type": "group",
+        "sender_id": "user-123",
+        "content": "Explain more please",
+        "is_self": False,
+        "mentions": [],
+        "quote": {"ownerId": "bot-999", "msg": "Previous answer"},
+    }
+    await channel._handle_bridge_message(json.dumps(quote_reply))
+    mock_bus.publish_inbound.assert_called_once()
+
+    mock_bus.publish_inbound.reset_mock()
+
+    # 6. Text mention @BotName with configured bot_name -> accepted
+    channel.config.bot_name = "NutriTech"
+    text_mention = {
+        "type": "message",
+        "id": "msg-004c",
+        "thread_id": "group-456",
+        "thread_type": "group",
+        "sender_id": "user-123",
+        "content": "@NutriTech cho mình hỏi về dinh dưỡng",
+        "is_self": False,
+        "mentions": [],
+    }
+    await channel._handle_bridge_message(json.dumps(text_mention))
+    mock_bus.publish_inbound.assert_called_once()
 
 
 
@@ -285,13 +355,15 @@ async def test_zalo_outbound_markdown_formatting(mock_bus):
 
 @pytest.mark.asyncio
 async def test_zalo_outbound_group_send_routing(mock_bus):
-    config = ZaloConfig(enabled=True, allow_from=["*"], reply_with_quote=True)
+    config = ZaloConfig(
+        enabled=True, allow_from=["*"], reply_with_quote=True, bot_name="Bot"
+    )
     channel = ZaloChannel(config, mock_bus)
     mock_ws = AsyncMock()
     channel._ws = mock_ws
     channel._connected = True
 
-    # 1. Inbound group message arrives
+    # 1. Inbound group message arrives mentioning @Bot
     group_msg = {
         "type": "message",
         "id": "msg-grp-999",
@@ -319,4 +391,43 @@ async def test_zalo_outbound_group_send_routing(mock_bus):
     assert sent_payload["thread_id"] == "group_888"  # prefix stripped
     assert sent_payload["thread_type"] == "group"  # correctly routed to group!
     assert sent_payload["quote_id"] == "msg-grp-999"  # quote recovered from cache!
+
+
+@pytest.mark.asyncio
+async def test_zalo_start_requests_status_on_connect(mock_bus, monkeypatch):
+    config = ZaloConfig(
+        enabled=True, bridge_url="ws://127.0.0.1:3002", bridge_token="tok123"
+    )
+    channel = ZaloChannel(config, mock_bus)
+
+    sent_messages = []
+
+    class MockWs:
+        async def send(self, data):
+            sent_messages.append(json.loads(data))
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            channel._running = False
+            raise StopAsyncIteration
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    import websockets
+
+    monkeypatch.setattr(websockets, "connect", lambda url: MockWs())
+
+    await channel.start()
+
+    assert any(
+        m.get("type") == "auth" and m.get("token") == "tok123" for m in sent_messages
+    )
+    assert any(m.get("type") == "get_status" for m in sent_messages)
+
 
