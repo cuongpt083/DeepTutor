@@ -315,7 +315,7 @@ class SoulTemplateUpdateRequest(BaseModel):
 
 
 class ChannelOnboardingStartRequest(BaseModel):
-    channel: Literal["feishu", "wecom"]
+    channel: Literal["feishu", "wecom", "zalo"]
 
 
 # ── Validation helpers ─────────────────────────────────────────

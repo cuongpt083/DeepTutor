@@ -61,3 +61,34 @@ test("ZaloBridgeServer rejects invalid token", async () => {
     await server.stop();
   }
 });
+
+test("ZaloBridgeServer responds to get_status request", async () => {
+  const server = new ZaloBridgeServer({
+    port: 3997,
+    token: "",
+    sessionPath: "/tmp/test-zalo-session.json",
+  });
+
+  await server.start();
+
+  try {
+    const ws = new WebSocket("ws://127.0.0.1:3997");
+    await new Promise((resolve) => ws.once("open", resolve));
+
+    ws.send(JSON.stringify({ type: "get_status" }));
+    const reply = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timeout")), 1000);
+      ws.once("message", (msg) => {
+        clearTimeout(timer);
+        resolve(JSON.parse(msg.toString()));
+      });
+    });
+    assert.equal(reply.type, "status");
+    assert.equal(reply.status, "ready_for_login");
+
+    ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+

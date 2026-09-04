@@ -75,7 +75,7 @@ services:
     volumes:
       - ./data/redis:/data:U
     networks:
-      - deeptutor
+      - study
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -161,7 +161,9 @@ services:
       - /var/run:size=8m,mode=0755
       - /var/log:size=640m,mode=0755
       - /root:size=1600m,mode=0700
+      - /app/web/.next/cache:size=1024m,mode=1777
     #  - /home:size=1600m,mode=1777
+
     ports:
       - "127.0.0.1:${HOST_PORT_BACKEND:-8001}:8001"
       - "${HOST_PORT_FRONTEND:-3782}:3782"

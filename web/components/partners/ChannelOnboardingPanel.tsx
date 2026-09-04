@@ -200,17 +200,19 @@ export default function ChannelOnboardingPanel({
             alt={t("Authorization QR code")}
             className="h-[168px] w-[168px] shrink-0 rounded-md border border-[var(--border)] bg-white p-2"
           />
-          <a
-            href={session.fallback_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex w-fit items-center gap-1.5 text-[12px] text-[var(--primary)] underline-offset-4 hover:underline"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            {t("Open authorization link")}
-          </a>
+          {session.fallback_url ? (
+            <a
+              href={session.fallback_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-fit items-center gap-1.5 text-[12px] text-[var(--primary)] underline-offset-4 hover:underline"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {t("Open authorization link")}
+            </a>
+          ) : null}
         </div>
-      ) : session && active ? (
+      ) : session && active && session.fallback_url ? (
         <a
           href={session.fallback_url}
           target="_blank"

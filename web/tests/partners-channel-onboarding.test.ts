@@ -87,6 +87,7 @@ test("onboarding client sends the partner-scoped lifecycle requests", async () =
   const stub = stubFetch(session);
   try {
     await startChannelOnboarding("partner id", "feishu");
+    await startChannelOnboarding("partner id", "zalo");
     await getChannelOnboarding("partner id", "session id");
     await cancelChannelOnboarding("partner id", "session id");
     await applyChannelOnboarding("partner id", "session id");
@@ -96,13 +97,19 @@ test("onboarding client sends the partner-scoped lifecycle requests", async () =
       url: "/api/partners/partner%20id/channel-onboarding/start",
       body: { channel: "feishu" },
     });
+    assert.deepEqual(stub.calls[1], {
+      method: "POST",
+      url: "/api/partners/partner%20id/channel-onboarding/start",
+      body: { channel: "zalo" },
+    });
     assert.equal(
-      stub.calls[1].url,
+      stub.calls[2].url,
       "/api/partners/partner%20id/channel-onboarding/session%20id",
     );
-    assert.equal(stub.calls[2].method, "DELETE");
-    assert.equal(stub.calls[3].method, "POST");
-    assert.match(stub.calls[3].url, /\/apply$/);
+    assert.equal(stub.calls[3].method, "DELETE");
+    assert.equal(stub.calls[4].method, "POST");
+    assert.match(stub.calls[4].url, /\/apply$/);
+
   } finally {
     stub.restore();
   }

@@ -19,6 +19,8 @@ export class ZaloBridgeServer {
     this.clients = new Set();
     this.zaloApi = null;
     this.loginState = "idle";
+    this.currentQrData = null;
+    this.currentLoginActions = null;
   }
 
   async start() {
@@ -111,9 +113,19 @@ export class ZaloBridgeServer {
         threadType
       );
     } else if (data.type === "start_qr_login") {
-      await this.startQrLogin();
+      if (this.currentQrData) {
+        ws.send(
+          JSON.stringify(formatQrEvent("qr_generated", this.currentQrData))
+        );
+      }
+      if (this.loginState !== "logging_in" || data.force) {
+        await this.startQrLogin(Boolean(data.force));
+      }
+    } else if (data.type === "get_status" || data.type === "status") {
+      this.sendCurrentStatus(ws);
     }
   }
+
 
   async loadSavedSession() {
     try {
@@ -163,9 +175,21 @@ export class ZaloBridgeServer {
     }
   }
 
-  async startQrLogin() {
-    if (this.loginState === "logging_in") return;
+  async startQrLogin(force = false) {
+    if (this.loginState === "logging_in" && !force) {
+      if (this.currentQrData) {
+        this.broadcast(formatQrEvent("qr_generated", this.currentQrData));
+      }
+      return;
+    }
+    if (this.currentLoginActions?.abort) {
+      try {
+        this.currentLoginActions.abort();
+      } catch {}
+      this.currentLoginActions = null;
+    }
     this.loginState = "logging_in";
+    this.currentQrData = null;
 
     try {
       const { Zalo } = await import("zca-js");
@@ -174,14 +198,30 @@ export class ZaloBridgeServer {
       this.zaloApi = await zalo.loginQR(
         {},
         (event) => {
+          this.currentLoginActions = event.actions;
           if (event.type === 0) {
             // QRCodeGenerated
+            const rawImage = event.data.image || "";
+            const qrDataUrl = rawImage.startsWith("data:image/")
+              ? rawImage
+              : rawImage
+                ? `data:image/png;base64,${rawImage}`
+                : "";
+            this.currentQrData = {
+              qrDataUrl,
+              code: event.data.code,
+              token: event.data.token,
+            };
             this.broadcast(
-              formatQrEvent("qr_generated", {
-                qrDataUrl: event.data.image,
-                token: event.data.token,
-              })
+              formatQrEvent("qr_generated", this.currentQrData)
             );
+          } else if (event.type === 1) {
+            // QRCodeExpired
+            this.currentQrData = null;
+            this.currentLoginActions = null;
+            this.loginState = "idle";
+            this.broadcast(formatQrEvent("qr_expired"));
+            event.actions?.abort?.();
           } else if (event.type === 2) {
             // QRCodeScanned
             this.broadcast(
@@ -190,6 +230,13 @@ export class ZaloBridgeServer {
                 avatar: event.data.avatar,
               })
             );
+          } else if (event.type === 3) {
+            // QRCodeDeclined
+            this.currentQrData = null;
+            this.currentLoginActions = null;
+            this.loginState = "idle";
+            this.broadcast(formatQrEvent("qr_declined"));
+            event.actions?.abort?.();
           } else if (event.type === 4) {
             // GotLoginInfo
             this.saveSession(event.data);
@@ -199,6 +246,8 @@ export class ZaloBridgeServer {
 
       this.bindListener(this.zaloApi);
       this.loginState = "idle";
+      this.currentQrData = null;
+      this.currentLoginActions = null;
       this.broadcast(
         formatStatus("connected", {
           userId: this.zaloApi.getContext?.()?.uid,
@@ -206,6 +255,8 @@ export class ZaloBridgeServer {
       );
     } catch (err) {
       this.loginState = "idle";
+      this.currentQrData = null;
+      this.currentLoginActions = null;
       this.broadcast(formatStatus("disconnected", { message: err.message }));
     }
   }

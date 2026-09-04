@@ -66,6 +66,7 @@ export function formatQrEvent(type, data = {}) {
     type,
     data: {
       qr_data_url: data.qrDataUrl,
+      code: data.code,
       token: data.token,
       avatar: data.avatar,
       display_name: data.displayName,

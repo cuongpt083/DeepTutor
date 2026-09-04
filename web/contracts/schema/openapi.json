@@ -1076,7 +1076,7 @@
       "ChannelOnboardingStartRequest": {
         "properties": {
           "channel": {
-            "enum": ["feishu", "wecom"],
+            "enum": ["feishu", "wecom", "zalo"],
             "title": "Channel",
             "type": "string"
           }

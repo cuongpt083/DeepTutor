@@ -9078,8 +9078,9 @@ export interface components {
        * Channel
        * @enum {string}
        */
-      readonly channel: "feishu" | "wecom";
+      readonly channel: "feishu" | "wecom" | "zalo";
     };
+
     /** ChapterImport */
     readonly ChapterImport: {
       /**

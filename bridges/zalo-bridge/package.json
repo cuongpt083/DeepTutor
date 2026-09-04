@@ -11,6 +11,6 @@
   "dependencies": {
     "dotenv": "^16.4.7",
     "ws": "^8.18.0",
-    "zca-js": "https://github.com/cuongpt083/zca-js.git"
+    "zca-js": "^2.1.2"
   }
 }

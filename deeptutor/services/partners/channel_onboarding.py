@@ -66,6 +66,12 @@ _TERMINAL_RETENTION_SECONDS = 120
 
 def _qr_data_url(payload: str) -> str | None:
     """Render a compact PNG QR data URL, tolerating an absent qrcode package."""
+    if not payload:
+        return None
+    if payload.startswith("data:image/"):
+        return payload
+    if payload.startswith("iVBORw0KGgo"):
+        return f"data:image/png;base64,{payload}"
     try:
         import base64
 
@@ -568,7 +574,18 @@ class ChannelOnboardingManager:
         )
 
         qr_data = await self._request_zalo_qr(bridge_url, token)
-        qr_payload = str(qr_data.get("qr_data_url") or qr_data.get("code") or "")
+        raw_url = str(qr_data.get("qr_data_url") or "")
+        raw_code = str(qr_data.get("code") or "")
+        if raw_url and not raw_url.startswith("data:image/"):
+            raw_url = f"data:image/png;base64,{raw_url}"
+        qr_payload = raw_url or raw_code
+        fallback_url = (
+            raw_code
+            if raw_code.startswith("http://")
+            or raw_code.startswith("https://")
+            or raw_code.startswith("zalo://")
+            else ""
+        )
         token_str = str(qr_data.get("token") or uuid4().hex)
         lifetime = 120
         deadline = self._now() + lifetime
@@ -578,7 +595,7 @@ class ChannelOnboardingManager:
             channel="zalo",
             status="pending_scan",
             qr_payload=qr_payload,
-            fallback_url="",
+            fallback_url=fallback_url,
             poll_interval_seconds=3,
             deadline_monotonic=deadline,
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=lifetime),
@@ -594,23 +611,64 @@ class ChannelOnboardingManager:
             async with websockets.connect(bridge_url) as ws:
                 if token:
                     await ws.send(json.dumps({"type": "auth", "token": token}))
-                    raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
-                    resp = json.loads(raw)
-                    if resp.get("type") == "auth_error":
-                        raise ChannelOnboardingError("Bridge authentication failed")
-                await ws.send(json.dumps({"type": "start_qr_login"}))
-                raw_resp = await asyncio.wait_for(ws.recv(), timeout=10.0)
-                msg = json.loads(raw_resp)
-                if msg.get("type") == "qr_generated":
-                    return msg.get("data", {})
-                raise ChannelOnboardingError(f"Unexpected bridge response: {msg.get('type')}")
+                await ws.send(json.dumps({"type": "start_qr_login", "force": True}))
+                deadline = asyncio.get_running_loop().time() + 30.0
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise TimeoutError("Timed out waiting for Zalo QR code from bridge")
+                    raw_resp = await asyncio.wait_for(ws.recv(), timeout=remaining)
+                    msg = json.loads(raw_resp)
+                    msg_type = msg.get("type")
+                    if msg_type == "qr_generated":
+                        return msg.get("data", {})
+                    if msg_type in ("auth_error", "error"):
+                        raise ChannelOnboardingError(msg.get("message") or f"Bridge error: {msg}")
         except ChannelOnboardingError:
             raise
         except Exception as exc:
             raise ChannelOnboardingError(f"Failed to connect to Zalo bridge at {bridge_url}: {exc}") from exc
 
     async def _poll_zalo(self, session: OnboardingSession) -> None:
-        pass
+        bridge_url = session.zalo_bridge_url or "ws://127.0.0.1:3002"
+        token = session.zalo_token or ""
+        import json
+        import websockets
+
+        try:
+            async with websockets.connect(bridge_url) as ws:
+                if token:
+                    await ws.send(json.dumps({"type": "auth", "token": token}))
+                else:
+                    await ws.send(json.dumps({"type": "get_status"}))
+
+                deadline = asyncio.get_running_loop().time() + 5.0
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        break
+                    raw_resp = await asyncio.wait_for(ws.recv(), timeout=remaining)
+                    msg = json.loads(raw_resp)
+                    msg_type = msg.get("type")
+                    if msg_type == "status":
+                        status = msg.get("status")
+                        if status == "connected":
+                            user_id = msg.get("user_id", "")
+                            session.status = "ready"
+                            session.credentials = {
+                                "connected": "true",
+                                "user_id": str(user_id or ""),
+                            }
+                        elif status in ("disconnected", "error"):
+                            if msg.get("message"):
+                                session.finish("failed", error_code=str(msg.get("message")))
+                        break
+                    if msg_type == "auth_error":
+                        session.finish("failed", error_code="auth_error")
+                        break
+        except Exception:
+            pass
+
 
     async def _post_feishu(
         self, client: httpx.AsyncClient, base_url: str, form: dict[str, str]

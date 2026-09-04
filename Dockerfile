@@ -223,7 +223,9 @@ RUN mkdir -p \
 # keep-id with a bind mount on ./data.
 RUN groupadd --system --gid 1000 deeptutor \
     && useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin deeptutor \
-    && chown -R deeptutor:deeptutor /app/data /app/web/.next /app/bridges
+    && mkdir -p /app/web/.next/cache \
+    && chown -R deeptutor:deeptutor /app/data /app/web /app/bridges
+
 
 # supervisord config is split into two files so the production and development
 # images share one daemon-level [supervisord] section instead of duplicating it:
