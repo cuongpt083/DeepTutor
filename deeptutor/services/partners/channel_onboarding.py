@@ -19,7 +19,7 @@ from uuid import uuid4
 import httpx
 from pydantic import ValidationError
 
-ChannelName = Literal["feishu", "wecom"]
+ChannelName = Literal["feishu", "wecom", "zalo"]
 OnboardingStatus = Literal[
     "pending_scan",
     "ready",
@@ -104,6 +104,8 @@ class OnboardingSession:
     feishu_device_code: str | None = None
     feishu_domain: str = "feishu"
     wecom_scode: str | None = None
+    zalo_bridge_url: str | None = None
+    zalo_token: str | None = None
     credentials: dict[str, str] = field(default_factory=dict)
     error_code: str | None = None
     terminal_at: float | None = None
@@ -116,7 +118,11 @@ class OnboardingSession:
             "channel": self.channel,
             "status": self.status,
             "qr_payload": self.qr_payload,
-            "qr_data_url": _qr_data_url(self.qr_payload),
+            "qr_data_url": (
+                self.qr_payload
+                if self.qr_payload.startswith("data:image/")
+                else _qr_data_url(self.qr_payload)
+            ),
             "fallback_url": self.fallback_url,
             "poll_interval_seconds": self.poll_interval_seconds,
             "expires_at": self.expires_at.isoformat(),
@@ -155,7 +161,7 @@ class ChannelOnboardingManager:
         self._keys_lock = asyncio.Lock()
 
     async def start(self, partner_id: str, channel: ChannelName) -> dict[str, Any]:
-        if channel not in ("feishu", "wecom"):
+        if channel not in ("feishu", "wecom", "zalo"):
             raise ChannelOnboardingError("Unsupported onboarding channel")
         async with self._keys_lock:
             await self._purge_expired_locked()
@@ -237,9 +243,13 @@ class ChannelOnboardingManager:
                     existing_allow.append(scanner)
                 next_config["allow_from"] = existing_allow or [scanner]
                 current.update(next_config)
-            else:
+            elif session.channel == "wecom":
                 existing_allow = [item for item in current.get("allow_from", []) or [] if item]
                 current.update(self._wecom_config(session))
+                current["allow_from"] = existing_allow or ["*"]
+            else:
+                existing_allow = [item for item in current.get("allow_from", []) or [] if item]
+                current.update(self._zalo_config(session))
                 current["allow_from"] = existing_allow or ["*"]
             merged[session.channel] = current
 
@@ -299,6 +309,12 @@ class ChannelOnboardingManager:
             "secret": secret,
         }
 
+    def _zalo_config(self, session: OnboardingSession) -> dict[str, Any]:
+        return {
+            "enabled": True,
+            "bridge_url": session.zalo_bridge_url or "ws://127.0.0.1:3002",
+        }
+
     def _get_session(self, partner_id: str, session_id: str) -> OnboardingSession:
         session = self._sessions.get(session_id)
         if session is None or session.partner_id != partner_id:
@@ -331,7 +347,9 @@ class ChannelOnboardingManager:
     async def _start_session(self, partner_id: str, channel: ChannelName) -> OnboardingSession:
         if channel == "feishu":
             return await self._start_feishu(partner_id)
-        return await self._start_wecom(partner_id)
+        if channel == "wecom":
+            return await self._start_wecom(partner_id)
+        return await self._start_zalo(partner_id)
 
     async def _start_feishu(self, partner_id: str) -> OnboardingSession:
         base_url = _FEISHU_ACCOUNTS_URLS["feishu"]
@@ -415,8 +433,10 @@ class ChannelOnboardingManager:
     async def _poll(self, session: OnboardingSession) -> None:
         if session.channel == "feishu":
             await self._poll_feishu(session)
-        else:
+        elif session.channel == "wecom":
             await self._poll_wecom(session)
+        else:
+            await self._poll_zalo(session)
 
     async def _poll_feishu(self, session: OnboardingSession) -> None:
         assert session.feishu_device_code is not None
@@ -521,6 +541,76 @@ class ChannelOnboardingManager:
             return
         session.credentials = {"bot_id": bot_id, "secret": secret}
         session.status = "ready"
+
+    async def _start_zalo(self, partner_id: str) -> OnboardingSession:
+        from deeptutor.services.partners import get_partner_manager
+
+        partner_manager = get_partner_manager()
+        instance = partner_manager.get_partner(partner_id)
+        config = instance.config if instance else partner_manager.load_config(partner_id)
+        current: dict[str, Any] = {}
+        if config and hasattr(config, "channels"):
+            channels = config.channels
+            if isinstance(channels, dict):
+                current = channels.get("zalo", {}) or {}
+            else:
+                current = getattr(channels, "zalo", {}) or {}
+        bridge_url = (
+            current.get("bridge_url")
+            if isinstance(current, dict)
+            else getattr(current, "bridge_url", "ws://127.0.0.1:3002")
+        )
+        bridge_url = bridge_url or "ws://127.0.0.1:3002"
+        token = (
+            current.get("bridge_token", "")
+            if isinstance(current, dict)
+            else getattr(current, "bridge_token", "")
+        )
+
+        qr_data = await self._request_zalo_qr(bridge_url, token)
+        qr_payload = str(qr_data.get("qr_data_url") or qr_data.get("code") or "")
+        token_str = str(qr_data.get("token") or uuid4().hex)
+        lifetime = 120
+        deadline = self._now() + lifetime
+        return OnboardingSession(
+            session_id=uuid4().hex,
+            partner_id=partner_id,
+            channel="zalo",
+            status="pending_scan",
+            qr_payload=qr_payload,
+            fallback_url="",
+            poll_interval_seconds=3,
+            deadline_monotonic=deadline,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=lifetime),
+            zalo_bridge_url=bridge_url,
+            zalo_token=token_str,
+        )
+
+    async def _request_zalo_qr(self, bridge_url: str, token: str = "") -> dict[str, Any]:
+        import json
+        import websockets
+
+        try:
+            async with websockets.connect(bridge_url) as ws:
+                if token:
+                    await ws.send(json.dumps({"type": "auth", "token": token}))
+                    raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                    resp = json.loads(raw)
+                    if resp.get("type") == "auth_error":
+                        raise ChannelOnboardingError("Bridge authentication failed")
+                await ws.send(json.dumps({"type": "start_qr_login"}))
+                raw_resp = await asyncio.wait_for(ws.recv(), timeout=10.0)
+                msg = json.loads(raw_resp)
+                if msg.get("type") == "qr_generated":
+                    return msg.get("data", {})
+                raise ChannelOnboardingError(f"Unexpected bridge response: {msg.get('type')}")
+        except ChannelOnboardingError:
+            raise
+        except Exception as exc:
+            raise ChannelOnboardingError(f"Failed to connect to Zalo bridge at {bridge_url}: {exc}") from exc
+
+    async def _poll_zalo(self, session: OnboardingSession) -> None:
+        pass
 
     async def _post_feishu(
         self, client: httpx.AsyncClient, base_url: str, form: dict[str, str]
