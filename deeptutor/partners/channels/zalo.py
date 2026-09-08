@@ -6,6 +6,7 @@ import asyncio
 from collections import OrderedDict
 import json
 from pathlib import Path
+import re
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -391,16 +392,25 @@ class ZaloChannel(BaseChannel):
                 while len(self._last_chat_message_ids) > 1000:
                     self._last_chat_message_ids.popitem(last=False)
 
+            clean_content = content
+            bot_name = str(self.config.bot_name or self._bot_display_name or "").strip()
+            if bot_name:
+                clean_content = re.sub(
+                    rf"@{re.escape(bot_name)}\b[:,\s]*", "", clean_content, flags=re.IGNORECASE
+                ).strip()
+
             attachments = data.get("attachments") or []
             media_paths: list[str] = []
             if attachments:
                 media_paths = await self._download_attachments(attachments)
 
-            if not content.strip() and attachments:
+            if not clean_content and attachments:
                 if all(att.get("type") == "image" for att in attachments):
-                    content = "Please analyze the attached image(s)."
+                    clean_content = "Please analyze the attached image(s)."
                 else:
-                    content = "Please use the attached file(s)."
+                    clean_content = "Please use the attached file(s)."
+            elif not clean_content:
+                clean_content = content.strip()
 
             metadata: dict[str, Any] = {
                 "origin_message_id": msg_id,
@@ -415,7 +425,7 @@ class ZaloChannel(BaseChannel):
             await self._handle_message(
                 sender_id=sender_id,
                 chat_id=chat_id,
-                content=content,
+                content=clean_content,
                 media=media_paths,
                 metadata=metadata,
             )

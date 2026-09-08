@@ -682,5 +682,169 @@ async def test_zalo_inbound_oversized_attachment_skipped(mock_bus, tmp_path, mon
     assert inbound.media == []
 
 
+@pytest.mark.asyncio
+async def test_zalo_inbound_group_quote_photo_with_text(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(
+        enabled=True,
+        allow_from=["*"],
+        group_policy="mention",
+        bot_name="MyBot",
+        bot_user_id="bot_999",
+    )
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    fake_image_bytes = b"\xff\xd8\xff\xe0fake_jpeg_data"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = fake_image_bytes
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "reply_msg_001",
+        "thread_id": "group_999",
+        "thread_type": "group",
+        "sender_id": "user_123",
+        "sender_name": "Bob",
+        "content": "@MyBot hãy giải thích bài tập này",
+        "is_self": False,
+        "mentions": [{"uid": "bot_999", "pos": 0, "len": 6}],
+        "quote": {
+            "globalMsgId": "photo_msg_000",
+            "cliMsgType": 32,
+            "msg": "Bai tap toan",
+        },
+        "attachments": [
+            {
+                "type": "image",
+                "url": "https://res-zalo.zadn.vn/photo/exercise.jpg",
+                "filename": "exercise.jpg",
+            }
+        ],
+        "timestamp": 1725390000000,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.chat_id == "group:group_999"
+    assert inbound.content == "hãy giải thích bài tập này"
+    assert len(inbound.media) == 1
+    assert inbound.media[0].endswith("exercise.jpg")
+    assert Path(inbound.media[0]).exists()
+
+
+@pytest.mark.asyncio
+async def test_zalo_inbound_group_quote_photo_mention_only(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(
+        enabled=True,
+        allow_from=["*"],
+        group_policy="mention",
+        bot_name="MyBot",
+        bot_user_id="bot_999",
+    )
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    fake_image_bytes = b"\xff\xd8\xff\xe0fake_jpeg_data"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = fake_image_bytes
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "reply_msg_002",
+        "thread_id": "group_999",
+        "thread_type": "group",
+        "sender_id": "user_123",
+        "content": "@MyBot",
+        "is_self": False,
+        "mentions": [{"uid": "bot_999", "pos": 0, "len": 6}],
+        "quote": {"globalMsgId": "photo_msg_000", "cliMsgType": 32},
+        "attachments": [
+            {
+                "type": "image",
+                "url": "https://res-zalo.zadn.vn/photo/exercise.jpg",
+                "filename": "exercise.jpg",
+            }
+        ],
+        "timestamp": 1725390000000,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.content == "Please analyze the attached image(s)."
+    assert len(inbound.media) == 1
+
+
+@pytest.mark.asyncio
+async def test_zalo_inbound_group_quote_document(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(
+        enabled=True,
+        allow_from=["*"],
+        group_policy="mention",
+        bot_name="MyBot",
+        bot_user_id="bot_999",
+    )
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    fake_doc_bytes = b"%PDF-1.4 fake pdf data"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = fake_doc_bytes
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "reply_msg_003",
+        "thread_id": "group_999",
+        "thread_type": "group",
+        "sender_id": "user_123",
+        "content": "@MyBot tóm tắt file này",
+        "is_self": False,
+        "mentions": [{"uid": "bot_999", "pos": 0, "len": 6}],
+        "quote": {"globalMsgId": "doc_msg_000", "cliMsgType": 46},
+        "attachments": [
+            {
+                "type": "file",
+                "url": "https://d-zalo.zadn.vn/file/doc.pdf",
+                "filename": "doc.pdf",
+                "size": 1024,
+            }
+        ],
+        "timestamp": 1725390000000,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.content == "tóm tắt file này"
+    assert len(inbound.media) == 1
+    assert inbound.media[0].endswith("doc.pdf")
+
+
+
 
 
