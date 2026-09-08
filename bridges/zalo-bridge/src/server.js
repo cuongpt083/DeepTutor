@@ -400,7 +400,7 @@ export class ZaloBridgeServer {
           this.recentMessages.delete(firstKey);
         }
       }
-      this.broadcast(formatInboundMessage(msg));
+      this.broadcast(formatInboundMessage(msg, this.recentMessages));
     });
 
     api.listener.on("closed", (code, reason) => {

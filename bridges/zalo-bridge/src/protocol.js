@@ -2,7 +2,87 @@
  * Wire protocol helpers for Zalo Bridge <-> DeepTutor.
  */
 
-export function formatInboundMessage(message) {
+export function extractAttachments(rawContent, msgType = "") {
+  let content = rawContent;
+  if (
+    typeof content === "string" &&
+    content.trim().startsWith("{") &&
+    content.trim().endsWith("}")
+  ) {
+    try {
+      content = JSON.parse(content);
+    } catch {
+      // keep raw string if parsing fails
+    }
+  }
+
+  const attachments = [];
+  if (!content || typeof content !== "object") {
+    return attachments;
+  }
+
+  // Extract photo attachment
+  const isPhotoMsg =
+    msgType === "chat.photo" ||
+    Boolean(
+      content.thumb ||
+      content.thumbUrl ||
+      content.hdUrl ||
+      content.oriUrl ||
+      content.normalUrl
+    );
+
+  if (isPhotoMsg) {
+    const imgUrl =
+      content.hdUrl ||
+      content.oriUrl ||
+      content.normalUrl ||
+      content.href ||
+      content.thumb ||
+      content.thumbUrl ||
+      content.url;
+
+    if (imgUrl && typeof imgUrl === "string") {
+      let filename = "photo.jpg";
+      try {
+        const parsedPath = new URL(imgUrl).pathname;
+        const base = parsedPath.split("/").pop();
+        if (base && /\.(jpg|jpeg|png|webp|gif)$/i.test(base)) {
+          filename = base;
+        }
+      } catch {
+        // fallback to default filename
+      }
+      attachments.push({
+        type: "image",
+        url: imgUrl,
+        filename,
+      });
+    }
+  } else if (
+    msgType === "share.file" ||
+    Boolean(content.fileSize || content.size)
+  ) {
+    // Extract file attachment
+    const fileUrl = content.href || content.url;
+    if (fileUrl && typeof fileUrl === "string") {
+      const filename = String(
+        content.title || content.fileName || "document"
+      );
+      const size = Number(content.fileSize || content.size || 0);
+      attachments.push({
+        type: "file",
+        url: fileUrl,
+        filename,
+        ...(size > 0 ? { size } : {}),
+      });
+    }
+  }
+
+  return attachments;
+}
+
+export function formatInboundMessage(message, recentMessages) {
   const data = message.data || {};
   const threadType = message.type === 1 ? "group" : "user";
   const msgType = String(data.msgType || "");
@@ -20,7 +100,7 @@ export function formatInboundMessage(message) {
     }
   }
 
-  const attachments = [];
+  const attachments = extractAttachments(rawContent, msgType);
   let content = "";
 
   if (typeof rawContent === "string") {
@@ -34,54 +114,58 @@ export function formatInboundMessage(message) {
     } else if (typeof rawContent.title === "string" && rawContent.title.trim()) {
       content = rawContent.title;
     }
+  }
 
-    // Extract photo attachment
-    const isPhotoMsg =
-      msgType === "chat.photo" ||
-      Boolean(rawContent.thumb || rawContent.hdUrl || rawContent.normalUrl);
+  // Fallback: when top-level attachments are empty, check quoted message
+  if (attachments.length === 0 && data.quote) {
+    const quote = data.quote;
+    const quoteId = String(quote.globalMsgId || quote.cliMsgId || quote.msgId || "");
 
-    if (isPhotoMsg) {
-      const imgUrl =
-        rawContent.hdUrl ||
-        rawContent.normalUrl ||
-        rawContent.href ||
-        rawContent.thumb ||
-        rawContent.url;
-
-      if (imgUrl && typeof imgUrl === "string") {
-        let filename = "photo.jpg";
-        try {
-          const parsedPath = new URL(imgUrl).pathname;
-          const base = parsedPath.split("/").pop();
-          if (base && /\.(jpg|jpeg|png|webp|gif)$/i.test(base)) {
-            filename = base;
-          }
-        } catch {
-          // fallback to default filename
-        }
-        attachments.push({
-          type: "image",
-          url: imgUrl,
-          filename,
-        });
+    // Tier 1: Look up in recentMessages cache
+    if (recentMessages && quoteId && recentMessages.has(quoteId)) {
+      const cached = recentMessages.get(quoteId);
+      const cachedAtts = extractAttachments(cached?.content, cached?.msgType);
+      if (cachedAtts.length > 0) {
+        attachments.push(...cachedAtts);
       }
-    } else if (
-      msgType === "share.file" ||
-      Boolean(rawContent.fileSize || rawContent.size)
-    ) {
-      // Extract file attachment
-      const fileUrl = rawContent.href || rawContent.url;
-      if (fileUrl && typeof fileUrl === "string") {
-        const filename = String(
-          rawContent.title || rawContent.fileName || "document"
-        );
-        const size = Number(rawContent.fileSize || rawContent.size || 0);
-        attachments.push({
-          type: "file",
-          url: fileUrl,
-          filename,
-          ...(size > 0 ? { size } : {}),
-        });
+    }
+
+    // Tier 2: Parse quote.attach payload directly
+    if (attachments.length === 0 && quote.attach) {
+      let attachObj = quote.attach;
+      if (typeof attachObj === "string" && attachObj.trim().startsWith("{") && attachObj.trim().endsWith("}")) {
+        try {
+          attachObj = JSON.parse(attachObj);
+        } catch {}
+      }
+
+      const quoteMsgType =
+        quote.cliMsgType === 32
+          ? "chat.photo"
+          : quote.cliMsgType === 46
+          ? "share.file"
+          : "";
+
+      if (attachObj && typeof attachObj === "object") {
+        const parsedAtts = extractAttachments(attachObj, quoteMsgType);
+        if (parsedAtts.length > 0) {
+          attachments.push(...parsedAtts);
+        }
+      } else if (typeof attachObj === "string" && /^https?:\/\//i.test(attachObj)) {
+        if (quote.cliMsgType === 32 || /\.(jpg|jpeg|png|webp|gif)$/i.test(attachObj)) {
+          let filename = "photo.jpg";
+          try {
+            const base = new URL(attachObj).pathname.split("/").pop();
+            if (base) filename = base;
+          } catch {}
+          attachments.push({ type: "image", url: attachObj, filename });
+        } else if (quote.cliMsgType === 46) {
+          attachments.push({
+            type: "file",
+            url: attachObj,
+            filename: String(quote.msg || "document"),
+          });
+        }
       }
     }
   }
