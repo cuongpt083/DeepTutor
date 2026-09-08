@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 import json
+from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid4
 
+import httpx
 from loguru import logger
 from pydantic import Field
 
@@ -15,7 +18,9 @@ from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.channels.zalo_formatter import format_for_zalo
 from deeptutor.partners.config.schema import DeliveryOverrides
-from deeptutor.partners.helpers import split_message
+from deeptutor.partners.helpers import safe_filename, split_message
+
+MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 class ZaloConfig(DeliveryOverrides):
@@ -62,12 +67,15 @@ class ZaloChannel(BaseChannel):
         self._typing_tasks: dict[str, asyncio.Task] = {}
         self._chat_thread_types: OrderedDict[str, str] = OrderedDict()
         self._last_chat_message_ids: OrderedDict[str, str] = OrderedDict()
+        self._http: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
         """Start the Zalo channel by connecting to the bridge."""
         import websockets
 
         self._running = True
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         bridge_url = self.config.bridge_url
         logger.info("Connecting to Zalo bridge at {}...", bridge_url)
 
@@ -116,9 +124,71 @@ class ZaloChannel(BaseChannel):
         for task in list(self._typing_tasks.values()):
             task.cancel()
         self._typing_tasks.clear()
+        if self._http:
+            await self._http.aclose()
+            self._http = None
         if self._ws:
             await self._ws.close()
             self._ws = None
+
+    async def _download_attachments(
+        self, attachments: list[dict[str, Any]]
+    ) -> list[str]:
+        """Download incoming attachments to this channel's media dir."""
+        if not attachments or not self._http:
+            return []
+
+        media_dir = self.media_dir()
+        media_dir.mkdir(parents=True, exist_ok=True)
+        media_paths: list[str] = []
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://chat.zalo.me/",
+        }
+
+        for att in attachments:
+            url = att.get("url")
+            if not url or not isinstance(url, str):
+                continue
+            if not (url.startswith("http://") or url.startswith("https://")):
+                continue
+
+            size = att.get("size")
+            if (
+                size
+                and isinstance(size, (int, float))
+                and size > MAX_ATTACHMENT_BYTES
+            ):
+                logger.warning(
+                    "Skipping oversized Zalo attachment: {} ({} bytes)", url, size
+                )
+                continue
+
+            filename = (
+                safe_filename(att.get("filename") or "attachment") or "attachment"
+            )
+            file_path = media_dir / f"{uuid4().hex[:12]}_{filename}"
+
+            try:
+                resp = await self._http.get(url, headers=headers)
+                resp.raise_for_status()
+                if len(resp.content) > MAX_ATTACHMENT_BYTES:
+                    logger.warning(
+                        "Downloaded Zalo attachment exceeded size cap: {}", url
+                    )
+                    continue
+                file_path.write_bytes(resp.content)
+                media_paths.append(str(file_path))
+            except Exception as e:
+                logger.warning(
+                    "Failed to download Zalo attachment from {}: {}", url, e
+                )
+
+        return media_paths
 
     def _start_typing(self, chat_id: str, thread_type: str = "user") -> None:
         """Start sending periodic typing indicator for a chat."""
@@ -321,6 +391,17 @@ class ZaloChannel(BaseChannel):
                 while len(self._last_chat_message_ids) > 1000:
                     self._last_chat_message_ids.popitem(last=False)
 
+            attachments = data.get("attachments") or []
+            media_paths: list[str] = []
+            if attachments:
+                media_paths = await self._download_attachments(attachments)
+
+            if not content.strip() and attachments:
+                if all(att.get("type") == "image" for att in attachments):
+                    content = "Please analyze the attached image(s)."
+                else:
+                    content = "Please use the attached file(s)."
+
             metadata: dict[str, Any] = {
                 "origin_message_id": msg_id,
                 "thread_type": thread_type,
@@ -335,6 +416,7 @@ class ZaloChannel(BaseChannel):
                 sender_id=sender_id,
                 chat_id=chat_id,
                 content=content,
+                media=media_paths,
                 metadata=metadata,
             )
 

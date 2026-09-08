@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -429,5 +430,217 @@ async def test_zalo_start_requests_status_on_connect(mock_bus, monkeypatch):
         m.get("type") == "auth" and m.get("token") == "tok123" for m in sent_messages
     )
     assert any(m.get("type") == "get_status" for m in sent_messages)
+
+
+@pytest.mark.asyncio
+async def test_zalo_inbound_message_with_image_attachment(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(enabled=True, allow_from=["*"])
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    fake_image_bytes = b"\x89PNG\r\n\x1a\nfake_png_data"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = fake_image_bytes
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "msg-img-1",
+        "thread_id": "user-123",
+        "thread_type": "user",
+        "sender_id": "user-123",
+        "content": "",
+        "attachments": [
+            {
+                "type": "image",
+                "url": "https://res-zalo.zadn.vn/photo/plate.png",
+                "filename": "plate.png",
+            }
+        ],
+        "is_self": False,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.chat_id == "user-123"
+    assert inbound.content == "Please analyze the attached image(s)."
+    assert len(inbound.media) == 1
+    downloaded_file = Path(inbound.media[0])
+    assert downloaded_file.exists()
+    assert downloaded_file.read_bytes() == fake_image_bytes
+
+
+@pytest.mark.asyncio
+async def test_zalo_inbound_message_with_image_and_caption(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(enabled=True, allow_from=["*"])
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    fake_image_bytes = b"\xff\xd8\xff\xe0fake_jpeg_data"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = fake_image_bytes
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "msg-img-2",
+        "thread_id": "user-123",
+        "thread_type": "user",
+        "sender_id": "user-123",
+        "content": "Analyze this meal",
+        "attachments": [
+            {
+                "type": "image",
+                "url": "https://res-zalo.zadn.vn/photo/food.jpg",
+                "filename": "food.jpg",
+            }
+        ],
+        "is_self": False,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.chat_id == "user-123"
+    assert inbound.content == "Analyze this meal"
+    assert len(inbound.media) == 1
+    downloaded_file = Path(inbound.media[0])
+    assert downloaded_file.exists()
+    assert downloaded_file.read_bytes() == fake_image_bytes
+
+
+@pytest.mark.asyncio
+async def test_zalo_inbound_download_failure_graceful(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(enabled=True, allow_from=["*"])
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(side_effect=RuntimeError("Network connection error"))
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "msg-img-3",
+        "thread_id": "user-123",
+        "thread_type": "user",
+        "sender_id": "user-123",
+        "content": "Check this out",
+        "attachments": [
+            {
+                "type": "image",
+                "url": "https://res-zalo.zadn.vn/photo/bad.jpg",
+                "filename": "bad.jpg",
+            }
+        ],
+        "is_self": False,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.chat_id == "user-123"
+    assert inbound.content == "Check this out"
+    assert inbound.media == []
+
+
+@pytest.mark.asyncio
+async def test_zalo_inbound_message_with_document_attachment(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(enabled=True, allow_from=["*"])
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    fake_doc_bytes = b"%PDF-1.4 fake pdf data"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = fake_doc_bytes
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=mock_resp)
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "msg-doc-1",
+        "thread_id": "user-123",
+        "thread_type": "user",
+        "sender_id": "user-123",
+        "content": "",
+        "attachments": [
+            {
+                "type": "file",
+                "url": "https://d-zalo.zadn.vn/file/doc.pdf",
+                "filename": "doc.pdf",
+                "size": len(fake_doc_bytes),
+            }
+        ],
+        "is_self": False,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.chat_id == "user-123"
+    assert inbound.content == "Please use the attached file(s)."
+    assert len(inbound.media) == 1
+    assert Path(inbound.media[0]).read_bytes() == fake_doc_bytes
+
+
+@pytest.mark.asyncio
+async def test_zalo_inbound_oversized_attachment_skipped(mock_bus, tmp_path, monkeypatch):
+    config = ZaloConfig(enabled=True, allow_from=["*"])
+    channel = ZaloChannel(config, mock_bus)
+    channel.partner_id = "test_partner"
+    monkeypatch.setattr(channel, "media_dir", lambda *a: tmp_path)
+
+    mock_http = AsyncMock()
+    channel._http = mock_http
+
+    payload = {
+        "type": "message",
+        "id": "msg-big-1",
+        "thread_id": "user-123",
+        "thread_type": "user",
+        "sender_id": "user-123",
+        "content": "Huge video file",
+        "attachments": [
+            {
+                "type": "file",
+                "url": "https://d-zalo.zadn.vn/file/huge.mp4",
+                "filename": "huge.mp4",
+                "size": 100 * 1024 * 1024,  # 100MB > 50MB
+            }
+        ],
+        "is_self": False,
+    }
+
+    await channel._handle_bridge_message(json.dumps(payload))
+
+    mock_http.get.assert_not_called()
+    mock_bus.publish_inbound.assert_called_once()
+    inbound: InboundMessage = mock_bus.publish_inbound.call_args[0][0]
+    assert inbound.media == []
+
+
 
 
