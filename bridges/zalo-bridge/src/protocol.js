@@ -5,12 +5,86 @@
 export function formatInboundMessage(message) {
   const data = message.data || {};
   const threadType = message.type === 1 ? "group" : "user";
-  const content =
-    typeof data.content === "string"
-      ? data.content
-      : typeof data.content?.title === "string"
-        ? data.content.title
-        : "";
+  const msgType = String(data.msgType || "");
+
+  let rawContent = data.content;
+  if (
+    typeof rawContent === "string" &&
+    rawContent.trim().startsWith("{") &&
+    rawContent.trim().endsWith("}")
+  ) {
+    try {
+      rawContent = JSON.parse(rawContent);
+    } catch {
+      // keep raw string if parsing fails
+    }
+  }
+
+  const attachments = [];
+  let content = "";
+
+  if (typeof rawContent === "string") {
+    content = rawContent;
+  } else if (rawContent && typeof rawContent === "object") {
+    // Extract caption / text
+    if (typeof rawContent.description === "string" && rawContent.description.trim()) {
+      content = rawContent.description;
+    } else if (typeof rawContent.desc === "string" && rawContent.desc.trim()) {
+      content = rawContent.desc;
+    } else if (typeof rawContent.title === "string" && rawContent.title.trim()) {
+      content = rawContent.title;
+    }
+
+    // Extract photo attachment
+    const isPhotoMsg =
+      msgType === "chat.photo" ||
+      Boolean(rawContent.thumb || rawContent.hdUrl || rawContent.normalUrl);
+
+    if (isPhotoMsg) {
+      const imgUrl =
+        rawContent.hdUrl ||
+        rawContent.normalUrl ||
+        rawContent.href ||
+        rawContent.thumb ||
+        rawContent.url;
+
+      if (imgUrl && typeof imgUrl === "string") {
+        let filename = "photo.jpg";
+        try {
+          const parsedPath = new URL(imgUrl).pathname;
+          const base = parsedPath.split("/").pop();
+          if (base && /\.(jpg|jpeg|png|webp|gif)$/i.test(base)) {
+            filename = base;
+          }
+        } catch {
+          // fallback to default filename
+        }
+        attachments.push({
+          type: "image",
+          url: imgUrl,
+          filename,
+        });
+      }
+    } else if (
+      msgType === "share.file" ||
+      Boolean(rawContent.fileSize || rawContent.size)
+    ) {
+      // Extract file attachment
+      const fileUrl = rawContent.href || rawContent.url;
+      if (fileUrl && typeof fileUrl === "string") {
+        const filename = String(
+          rawContent.title || rawContent.fileName || "document"
+        );
+        const size = Number(rawContent.fileSize || rawContent.size || 0);
+        attachments.push({
+          type: "file",
+          url: fileUrl,
+          filename,
+          ...(size > 0 ? { size } : {}),
+        });
+      }
+    }
+  }
 
   return {
     type: "message",
@@ -19,7 +93,8 @@ export function formatInboundMessage(message) {
     thread_type: threadType,
     sender_id: String(data.uidFrom || message.threadId || ""),
     sender_name: String(data.dName || ""),
-    content,
+    content: content.trim(),
+    attachments,
     is_self: Boolean(message.isSelf),
     mentions: Array.isArray(data.mentions) ? data.mentions : [],
     quote: data.quote || null,

@@ -117,3 +117,86 @@ test("parseTypingMessage parses typing payload correctly", () => {
   assert.equal(parsed.thread_id, "user_456");
   assert.equal(parsed.thread_type, "group");
 });
+
+test("formatInboundMessage extracts photo attachment with caption", () => {
+  const zcaMsg = {
+    type: 0,
+    threadId: "user_456",
+    isSelf: false,
+    data: {
+      msgId: "msg_photo_1",
+      msgType: "chat.photo",
+      uidFrom: "user_456",
+      dName: "Alice",
+      content: {
+        href: "https://res-zalo.zadn.vn/photo/sample_hd.jpg",
+        thumb: "https://res-zalo.zadn.vn/photo/sample_thumb.jpg",
+        description: "What food is this?",
+      },
+      ts: "1725390000000",
+    },
+  };
+
+  const wire = formatInboundMessage(zcaMsg);
+  assert.equal(wire.type, "message");
+  assert.equal(wire.content, "What food is this?");
+  assert.ok(Array.isArray(wire.attachments));
+  assert.equal(wire.attachments.length, 1);
+  assert.equal(wire.attachments[0].type, "image");
+  assert.equal(wire.attachments[0].url, "https://res-zalo.zadn.vn/photo/sample_hd.jpg");
+  assert.equal(wire.attachments[0].filename, "sample_hd.jpg");
+});
+
+test("formatInboundMessage extracts photo attachment without caption", () => {
+  const zcaMsg = {
+    type: 0,
+    threadId: "user_456",
+    isSelf: false,
+    data: {
+      msgId: "msg_photo_2",
+      msgType: "chat.photo",
+      uidFrom: "user_456",
+      dName: "Alice",
+      content: {
+        normalUrl: "https://res-zalo.zadn.vn/photo/normal.png",
+      },
+      ts: "1725390000000",
+    },
+  };
+
+  const wire = formatInboundMessage(zcaMsg);
+  assert.equal(wire.content, "");
+  assert.ok(Array.isArray(wire.attachments));
+  assert.equal(wire.attachments.length, 1);
+  assert.equal(wire.attachments[0].type, "image");
+  assert.equal(wire.attachments[0].url, "https://res-zalo.zadn.vn/photo/normal.png");
+});
+
+test("formatInboundMessage extracts document attachment from share.file", () => {
+  const zcaMsg = {
+    type: 1,
+    threadId: "group_789",
+    isSelf: false,
+    data: {
+      msgId: "msg_file_1",
+      msgType: "share.file",
+      uidFrom: "user_123",
+      dName: "Bob",
+      content: {
+        title: "nutrition_plan.pdf",
+        href: "https://d-zalo.zadn.vn/file/nutrition_plan.pdf",
+        fileSize: 1048576,
+      },
+      ts: "1725390000000",
+    },
+  };
+
+  const wire = formatInboundMessage(zcaMsg);
+  assert.ok(Array.isArray(wire.attachments));
+  assert.equal(wire.attachments.length, 1);
+  assert.equal(wire.attachments[0].type, "file");
+  assert.equal(wire.attachments[0].filename, "nutrition_plan.pdf");
+  assert.equal(wire.attachments[0].url, "https://d-zalo.zadn.vn/file/nutrition_plan.pdf");
+  assert.equal(wire.attachments[0].size, 1048576);
+});
+
