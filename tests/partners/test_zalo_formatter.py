@@ -189,3 +189,59 @@ def test_format_and_split_giant_line():
     for text, styles in chunks:
         assert len(text) <= 350
 
+
+def test_format_math_latex_cleaned():
+    md = "Mức calo mục tiêu (ước tính): $\\sim 1150 - 1250\\text{ kcal/ngày}$"
+    text, styles = format_for_zalo(md)
+    assert "\\sim" not in text
+    assert "\\text" not in text
+    assert "~ 1150 - 1250 kcal/ngày" in text
+
+
+def test_format_inequalities_and_percentages():
+    md = "Kéo tỷ lệ nước lên $\\ge 50\\%$, duy trì $\\le 9.5$ và tăng nhẹ $0.5 - 1\\text{ kg}$ cơ nạc."
+    text, styles = format_for_zalo(md)
+    assert "\\ge" not in text
+    assert "\\le" not in text
+    assert "\\%" not in text
+    assert "≥ 50%" in text
+    assert "≤ 9.5" in text
+    assert "0.5 - 1 kg cơ nạc" in text
+
+
+def test_format_standalone_latex_without_delimiters():
+    md = "Mức calo: \\sim 1150 - 1250\\text{ kcal/ngày} với tỷ lệ \\ge 50\\%"
+    text, styles = format_for_zalo(md)
+    assert "\\sim" not in text
+    assert "\\text" not in text
+    assert "\\ge" not in text
+    assert "~ 1150 - 1250 kcal/ngày" in text
+    assert "≥ 50%" in text
+
+
+def test_format_math_symbols_and_greek():
+    md = "Phương trình: $x^2 + y^2 = r^2$, $\\alpha = 30^\\circ$, $a \\times b \\pm c \\approx d$, $\\frac{x}{y}$"
+    text, styles = format_for_zalo(md)
+    assert "x² + y² = r²" in text
+    assert "α = 30°" in text
+    assert "a × b ± c ≈ d" in text
+    assert "(x)/(y)" in text or "x/y" in text
+
+
+def test_format_html_tags_cleaned():
+    md = "Xin chào <b>bạn</b> và <i>đồng nghiệp</i> <span class='highlight'>chú ý</span>."
+    text, styles = format_for_zalo(md)
+    assert "<span" not in text
+    assert "<b>" not in text
+    assert "Xin chào bạn và đồng nghiệp chú ý." == text
+    # Check bold style is recognized
+    b_styles = [s for s in styles if s["st"] == "b"]
+    assert len(b_styles) >= 1
+
+
+def test_code_blocks_preserve_latex_verbatim():
+    md = "```python\nval = '\\text{do not touch}'\n```\nNgoài mã: $\\ge 50\\%$"
+    text, styles = format_for_zalo(md)
+    assert "\\text{do not touch}" in text
+    assert "≥ 50%" in text
+

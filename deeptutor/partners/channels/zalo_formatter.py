@@ -21,11 +21,228 @@ def utf16_len(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
+_SUP_MAP = {
+    "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+    "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+    "+": "⁺", "-": "⁻", "n": "ⁿ", "x": "ˣ", "y": "ʸ",
+}
+_SUB_MAP = {
+    "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+    "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+    "+": "₊", "-": "₋", "a": "ₐ", "e": "ₑ", "o": "ₒ", "x": "ₓ",
+}
+
+_LATEX_SYMBOLS: list[tuple[str, str]] = [
+    # Degree & temperature
+    (r"\\degree([CF])\b", r"°\1"),
+    (r"\^\{?\\circ\}?|\\degree(?![a-zA-Z])", "°"),
+    # Relations & Operators
+    (r"\\ge(?:q)?(?![a-zA-Z])", "≥"),
+    (r"\\le(?:q)?(?![a-zA-Z])", "≤"),
+    (r"\\sim(?![a-zA-Z])", "~"),
+    (r"\\approx(?![a-zA-Z])", "≈"),
+    (r"\\pm(?![a-zA-Z])", "±"),
+    (r"\\mp(?![a-zA-Z])", "∓"),
+    (r"\\times(?![a-zA-Z])", "×"),
+    (r"\\div(?![a-zA-Z])", "÷"),
+    (r"\\ne(?:q)?(?![a-zA-Z])", "≠"),
+    (r"\\equiv(?![a-zA-Z])", "≡"),
+    (r"\\cdot(?![a-zA-Z])", "·"),
+    (r"\\bullet(?![a-zA-Z])", "•"),
+    (r"\\(?:dots|ldots|cdots|vdots|ddots)(?![a-zA-Z])", "..."),
+    # Arrows
+    (r"\\(?:to|rightarrow)(?![a-zA-Z])", "→"),
+    (r"\\leftarrow(?![a-zA-Z])", "←"),
+    (r"\\Rightarrow(?![a-zA-Z])", "⇒"),
+    (r"\\Leftarrow(?![a-zA-Z])", "⇐"),
+    (r"\\leftrightarrow(?![a-zA-Z])", "↔"),
+    # Math sets & logic
+    (r"\\infty(?![a-zA-Z])", "∞"),
+    (r"\\sum(?![a-zA-Z])", "∑"),
+    (r"\\prod(?![a-zA-Z])", "∏"),
+    (r"\\int(?![a-zA-Z])", "∫"),
+    (r"\\partial(?![a-zA-Z])", "∂"),
+    (r"\\nabla(?![a-zA-Z])", "∇"),
+    (r"\\in(?![a-zA-Z])", "∈"),
+    (r"\\notin(?![a-zA-Z])", "∉"),
+    (r"\\subset(?![a-zA-Z])", "⊂"),
+    (r"\\subseteq(?![a-zA-Z])", "⊆"),
+    (r"\\cup(?![a-zA-Z])", "∪"),
+    (r"\\cap(?![a-zA-Z])", "∩"),
+    (r"\\forall(?![a-zA-Z])", "∀"),
+    (r"\\exists(?![a-zA-Z])", "∃"),
+    # Greek letters (lowercase)
+    (r"\\alpha(?![a-zA-Z])", "α"),
+    (r"\\beta(?![a-zA-Z])", "β"),
+    (r"\\gamma(?![a-zA-Z])", "γ"),
+    (r"\\delta(?![a-zA-Z])", "δ"),
+    (r"\\(?:epsilon|varepsilon)(?![a-zA-Z])", "ε"),
+    (r"\\zeta(?![a-zA-Z])", "ζ"),
+    (r"\\eta(?![a-zA-Z])", "η"),
+    (r"\\(?:theta|vartheta)(?![a-zA-Z])", "θ"),
+    (r"\\iota(?![a-zA-Z])", "ι"),
+    (r"\\kappa(?![a-zA-Z])", "κ"),
+    (r"\\lambda(?![a-zA-Z])", "λ"),
+    (r"\\mu(?![a-zA-Z])", "μ"),
+    (r"\\nu(?![a-zA-Z])", "ν"),
+    (r"\\xi(?![a-zA-Z])", "ξ"),
+    (r"\\pi(?![a-zA-Z])", "π"),
+    (r"\\rho(?![a-zA-Z])", "ρ"),
+    (r"\\sigma(?![a-zA-Z])", "σ"),
+    (r"\\tau(?![a-zA-Z])", "τ"),
+    (r"\\upsilon(?![a-zA-Z])", "υ"),
+    (r"\\(?:phi|varphi)(?![a-zA-Z])", "φ"),
+    (r"\\chi(?![a-zA-Z])", "χ"),
+    (r"\\psi(?![a-zA-Z])", "ψ"),
+    (r"\\omega(?![a-zA-Z])", "ω"),
+    # Greek letters (uppercase)
+    (r"\\Gamma(?![a-zA-Z])", "Γ"),
+    (r"\\Delta(?![a-zA-Z])", "Δ"),
+    (r"\\Theta(?![a-zA-Z])", "Θ"),
+    (r"\\Lambda(?![a-zA-Z])", "Λ"),
+    (r"\\Xi(?![a-zA-Z])", "Ξ"),
+    (r"\\Pi(?![a-zA-Z])", "Π"),
+    (r"\\Sigma(?![a-zA-Z])", "Σ"),
+    (r"\\Phi(?![a-zA-Z])", "Φ"),
+    (r"\\Psi(?![a-zA-Z])", "Ψ"),
+    (r"\\Omega(?![a-zA-Z])", "Ω"),
+]
+
+
+def clean_latex_math(text: str) -> str:
+    """Convert LaTeX math constructs and symbols to clean, readable Unicode text."""
+    if not text:
+        return ""
+
+    # Ensure space between number and unit wrapper: e.g. 100\text{kg} -> 100 kg
+    text = re.sub(
+        r"(\d)\s*\\(?:text|mathrm|mathbf|mathit|operatorname|textbf|textit|bm|boldsymbol)\{([a-zA-Z])",
+        r"\1 \2",
+        text,
+    )
+
+    # 1. Strip wrappers: \text{...}, \mathrm{...}, etc.
+    while re.search(
+        r"\\(?:text|mathrm|mathbf|mathit|operatorname|textbf|textit|bm|boldsymbol)\{([^{}]*)\}",
+        text,
+    ):
+        text = re.sub(
+            r"\\(?:text|mathrm|mathbf|mathit|operatorname|textbf|textit|bm|boldsymbol)\{([^{}]*)\}",
+            r"\1",
+            text,
+        )
+
+    # 2. Fractions: \frac{a}{b} -> (a)/(b)
+    while re.search(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", text):
+        text = re.sub(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", r"(\1)/(\2)", text)
+
+    # 3. Square roots: \sqrt[n]{x} -> ⁿ√(x), \sqrt{x} -> √(x)
+    text = re.sub(r"\\sqrt\[(\d+)\]\{([^{}]+)\}", r"(\1)√(\2)", text)
+    text = re.sub(r"\\sqrt\{([^{}]+)\}", r"√(\1)", text)
+
+    # 4. Symbol replacements
+    for pattern, repl in _LATEX_SYMBOLS:
+        text = re.sub(pattern, repl, text)
+
+    # 5. Sizing & delimiters: \left, \right
+    text = re.sub(r"\\(?:left|right)\b", "", text)
+
+    # 6. Spacing: \, \: \; \! \quad \qquad
+    text = re.sub(r"\\[,;:!]", " ", text)
+    text = re.sub(r"\\(?:quad|qquad)\b", " ", text)
+
+    # 7. Superscripts and subscripts
+    text = re.sub(
+        r"\^\{([0-9nxy+-]+)\}",
+        lambda m: "".join(_SUP_MAP.get(c, c) for c in m.group(1)),
+        text,
+    )
+    text = re.sub(
+        r"\^([0-9nxy])",
+        lambda m: _SUP_MAP.get(m.group(1), m.group(0)),
+        text,
+    )
+    text = re.sub(
+        r"_\{([0-9aeox+-]+)\}",
+        lambda m: "".join(_SUB_MAP.get(c, c) for c in m.group(1)),
+        text,
+    )
+    text = re.sub(
+        r"_([0-9aeox])",
+        lambda m: _SUB_MAP.get(m.group(1), m.group(0)),
+        text,
+    )
+
+    # 8. Escaped characters: \%, \$, \&, \#, \_, \{, \}
+    text = re.sub(r"\\([%&#${}_])", r"\1", text)
+
+    # 9. Clean any remaining lone curly braces
+    while re.search(r"\{([^{}]*)\}", text):
+        text = re.sub(r"\{([^{}]*)\}", r"\1", text)
+
+    # 10. Clean lone backslashes before words
+    text = re.sub(r"\\([a-zA-Z]+)", r"\1", text)
+
+    # 11. Normalize horizontal spaces
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
+
+
+def clean_html_tags(text: str) -> str:
+    """Convert inline HTML formatting tags to Markdown syntax or strip unneeded tags."""
+    # Convert formatting tags to Markdown
+    text = re.sub(r"(?i)<(?:b|strong)>(.*?)</(?:b|strong)>", r"**\1**", text)
+    text = re.sub(r"(?i)<(?:i|em)>(.*?)</(?:i|em)>", r"*\1*", text)
+    text = re.sub(r"(?i)<(?:del|s|strike)>(.*?)</(?:del|s|strike)>", r"~~\1~~", text)
+    text = re.sub(r"(?i)<code>(.*?)</code>", r"`\1`", text)
+    text = re.sub(r"(?i)<(?:u|ins)>(.*?)</(?:u|ins)>", r"\1", text)
+
+    # Strip span, div, p, center, font, etc.
+    text = re.sub(
+        r"(?i)</?(?:span|div|p|center|font|small|big|header|footer|section|article)[^>]*>",
+        "",
+        text,
+    )
+
+    # Strip any remaining stray tags except <br>
+    text = re.sub(r"(?i)<(?!/?br\s*/?>)[^>]+>", "", text)
+    return text
+
+
 def _parse_lines(content: str) -> list[dict[str, Any]]:
-    """Parse Markdown content into structured lines with table and code expansions."""
+    """Parse Markdown content into structured lines with table, math, and code expansions."""
     text = content.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Clean images: ![alt](url) -> [Hình ảnh: alt] (url) or [Hình ảnh] (url)
+    # 1. Protect code blocks from HTML and math transformations
+    code_blocks: list[str] = []
+
+    def _save_code(m: re.Match) -> str:
+        code_blocks.append(m.group(0))
+        return f"\x00C{len(code_blocks) - 1}C\x00"
+
+    text = re.sub(r"```[^\n]*\n[\s\S]*?```", _save_code, text)
+
+    inline_codes: list[str] = []
+
+    def _save_inline_code(m: re.Match) -> str:
+        inline_codes.append(m.group(0))
+        return f"\x00I{len(inline_codes) - 1}I\x00"
+
+    text = re.sub(r"`[^`\n]+`", _save_inline_code, text)
+
+    # 2. Clean HTML tags
+    text = clean_html_tags(text)
+
+    # 3. Clean math blocks $$...$$ and $...$
+    text = re.sub(r"\\\$", "\x00DOLLAR\x00", text)
+    text = re.sub(r"\$\$([\s\S]+?)\$\$", lambda m: clean_latex_math(m.group(1)), text)
+    text = re.sub(r"\$([^\$\n]+)\$", lambda m: clean_latex_math(m.group(1)), text)
+    text = text.replace("\x00DOLLAR\x00", "$")
+
+    # 4. Clean standalone LaTeX math commands/symbols
+    text = clean_latex_math(text)
+
+    # 5. Clean images: ![alt](url) -> [Hình ảnh: alt] (url) or [Hình ảnh] (url)
     text = re.sub(
         r"!\[([^\]]*)\]\((https?://[^\s)]+)\)",
         lambda m: f"[Hình ảnh: {m.group(1)}] ({m.group(2)})"
@@ -34,7 +251,7 @@ def _parse_lines(content: str) -> list[dict[str, Any]]:
         text,
     )
 
-    # Convert hyperlinks: [label](url) -> label (url) or url if label == url
+    # 6. Convert hyperlinks: [label](url) -> label (url) or url if label == url
     def _sub_link(m: re.Match) -> str:
         label = m.group(1).strip()
         url = m.group(2).strip()
@@ -42,9 +259,11 @@ def _parse_lines(content: str) -> list[dict[str, Any]]:
 
     text = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", _sub_link, text)
 
-    # Clean math delimiters: $$...$$ and $...$
-    text = re.sub(r"\$\$([^\$]+)\$\$", r"\1", text)
-    text = re.sub(r"\$([^\$\n]+)\$", r"\1", text)
+    # 7. Restore protected code blocks and inline code
+    for i, code in enumerate(inline_codes):
+        text = text.replace(f"\x00I{i}I\x00", code)
+    for i, block in enumerate(code_blocks):
+        text = text.replace(f"\x00C{i}C\x00", block)
 
     raw_lines = text.split("\n")
     processed_lines: list[dict[str, Any]] = []
@@ -165,6 +384,10 @@ def _parse_lines(content: str) -> list[dict[str, Any]]:
             if li_m:
                 indent = li_m.group(1)
                 item = li_m.group(2)
+                task_m = re.match(r"^\[([ xX])\]\s+(.*)$", item)
+                if task_m:
+                    check = "✅ " if task_m.group(1).lower() == "x" else "◻️ "
+                    item = check + task_m.group(2)
                 processed_lines.append(
                     {"text": f"{indent}• {item}", "line_styles": [], "verbatim": False}
                 )
