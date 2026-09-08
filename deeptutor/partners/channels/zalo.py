@@ -16,9 +16,12 @@ from pydantic import Field
 from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
-from deeptutor.partners.channels.zalo_formatter import format_for_zalo
+from deeptutor.partners.channels.zalo_formatter import (
+    format_and_split_for_zalo,
+    format_for_zalo,
+)
 from deeptutor.partners.config.schema import DeliveryOverrides
-from deeptutor.partners.helpers import safe_filename, split_message
+from deeptutor.partners.helpers import safe_filename
 
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
@@ -263,14 +266,11 @@ class ZaloChannel(BaseChannel):
             )
 
         raw_content = msg.content or ""
-        chunks = (
-            split_message(raw_content, max_len=1800)
-            if len(raw_content) > 1800
-            else [raw_content]
-        )
+        chunks = format_and_split_for_zalo(raw_content, max_len=1200)
 
-        for idx, chunk in enumerate(chunks):
-            text, styles = format_for_zalo(chunk)
+        for idx, (text, styles) in enumerate(chunks):
+            if not text.strip():
+                continue
             payload: dict[str, Any] = {
                 "type": "send",
                 "thread_id": target_thread_id,

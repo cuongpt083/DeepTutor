@@ -1,6 +1,10 @@
 """Unit tests for Zalo markdown formatting and styles extraction."""
 
-from deeptutor.partners.channels.zalo_formatter import format_for_zalo, utf16_len
+from deeptutor.partners.channels.zalo_formatter import (
+    format_and_split_for_zalo,
+    format_for_zalo,
+    utf16_len,
+)
 
 
 def test_format_empty():
@@ -130,4 +134,58 @@ def test_format_br_tags():
     md_code = "```html\n<div><br>Nội dung</div>\n```"
     text_code, _ = format_for_zalo(md_code)
     assert "<div><br>Nội dung</div>" in text_code
+
+
+def test_format_and_split_short_content():
+    md = "# Tiêu đề ngắn\nĐây là **nội dung ngắn**."
+    chunks = format_and_split_for_zalo(md, max_len=1200)
+    assert len(chunks) == 1
+    text, styles = chunks[0]
+    assert "📌 Tiêu đề ngắn" in text
+    assert "nội dung ngắn" in text
+    assert len(styles) >= 2
+
+
+def test_format_and_split_long_content_with_tables():
+    # Construct long content with headings, paragraphs, and a large table
+    table_rows = "\n".join(
+        f"| Chỉ số {i} | {40 + i} kg | 45-55 kg | Đánh giá {i} | Gợi ý định hướng cụ thể số {i} |"
+        for i in range(15)
+    )
+    md = (
+        "# Báo cáo phân tích chỉ số\n\n"
+        "Chào bạn, dưới đây là bảng phân tích toàn diện các chỉ số sức khỏe:\n\n"
+        "| Chỉ số | Kết quả | Chuẩn | Đánh giá | Gợi ý |\n"
+        "| :--- | :--- | :--- | :--- | :--- |\n"
+        f"{table_rows}\n\n"
+        "### Lời khuyên chung\n"
+        "- Hãy uống đủ **nước** mỗi ngày.\n"
+        "- Tập thể dục ít nhất *30 phút* mỗi ngày.\n"
+    )
+
+    chunks = format_and_split_for_zalo(md, max_len=600)
+    assert len(chunks) > 1
+
+    for idx, (text, styles) in enumerate(chunks):
+        assert len(text) <= 650, f"Chunk {idx} len {len(text)} exceeds max_len"
+        t_utf16 = utf16_len(text)
+        for s in styles:
+            assert s["start"] >= 0, f"Negative start in chunk {idx}: {s}"
+            assert (
+                s["start"] + s["len"] <= t_utf16
+            ), f"Style overflow in chunk {idx}: {s} vs text utf16_len {t_utf16}"
+
+    # Verify content continuity: all table indicators are present across chunks
+    combined = " ".join(t for t, _ in chunks)
+    for i in range(15):
+        assert f"Chỉ số {i}" in combined
+
+
+def test_format_and_split_giant_line():
+    # Single continuous line exceeding max_len
+    long_line = "Đây là một câu rất dài " * 50  # ~1200 chars
+    chunks = format_and_split_for_zalo(long_line, max_len=300)
+    assert len(chunks) > 1
+    for text, styles in chunks:
+        assert len(text) <= 350
 

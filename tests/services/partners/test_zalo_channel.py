@@ -270,6 +270,46 @@ async def test_zalo_outbound_send(mock_bus):
 
 
 @pytest.mark.asyncio
+async def test_zalo_outbound_send_long_content_splits_cleanly(mock_bus):
+    config = ZaloConfig(enabled=True, allow_from=["*"], reply_with_quote=True)
+    channel = ZaloChannel(config, mock_bus)
+    mock_ws = AsyncMock()
+    channel._ws = mock_ws
+    channel._connected = True
+
+    # Multi-row table with markdown that expands
+    table_rows = "\n".join(
+        f"| Hàng {i} | Giá trị {i} | Chi tiết thêm rất dài cho hàng số {i} |"
+        for i in range(40)
+    )
+    long_content = f"# Báo cáo dài\n\n| Cột 1 | Cột 2 | Cột 3 |\n| --- | --- | --- |\n{table_rows}"
+
+    outbound = OutboundMessage(
+        channel="zalo",
+        chat_id="user-123",
+        content=long_content,
+        metadata={"origin_message_id": "msg-001", "thread_type": "user"},
+    )
+    await channel.send(outbound)
+
+    assert mock_ws.send.call_count > 1
+    calls = mock_ws.send.call_args_list
+
+    # First chunk has quote_id
+    payload_0 = json.loads(calls[0][0][0])
+    assert payload_0["type"] == "send"
+    assert payload_0["quote_id"] == "msg-001"
+    assert len(payload_0["text"]) <= 1300
+
+    # Subsequent chunks do NOT have quote_id and stay <= 1300 chars
+    for call in calls[1:]:
+        payload = json.loads(call[0][0])
+        assert "quote_id" not in payload
+        assert len(payload["text"]) <= 1300
+        assert payload["thread_id"] == "user-123"
+
+
+@pytest.mark.asyncio
 async def test_zalo_duplicate_connection_status(mock_bus):
     config = ZaloConfig(enabled=True, allow_from=["*"])
     channel = ZaloChannel(config, mock_bus)

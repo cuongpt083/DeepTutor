@@ -118,53 +118,62 @@ export class ZaloBridgeServer {
       if (parsed.quote_id) {
         const cached = this.recentMessages.get(String(parsed.quote_id));
         if (cached) {
-          quote = {
-            content: typeof cached.content === "string" ? cached.content : "",
-            msgType: cached.msgType || "webchat",
-            propertyExt: cached.propertyExt || {},
-            uidFrom: String(cached.uidFrom || cached.fromUid || ""),
-            msgId: String(cached.msgId || parsed.quote_id),
-            cliMsgId: String(cached.cliMsgId || cached.msgId || parsed.quote_id),
-            ts: Number(cached.ts || Date.now()),
-            ttl: Number(cached.ttl || 0),
-          };
+          const isMedia = cached.msgType && cached.msgType !== "webchat";
+          // In 1:1 chat (threadType === 0), zca-js cannot quote media messages (lacks qmsgAttach for 1:1)
+          if (!(threadType === 0 && isMedia)) {
+            quote = {
+              content: cached.content || "",
+              msgType: cached.msgType || "webchat",
+              propertyExt: cached.propertyExt || {},
+              uidFrom: String(cached.uidFrom || cached.fromUid || ""),
+              msgId: String(cached.msgId || parsed.quote_id),
+              cliMsgId: String(cached.cliMsgId || cached.msgId || parsed.quote_id),
+              ts: Number(cached.ts || Date.now()),
+              ttl: Number(cached.ttl || 0),
+            };
+          }
         } else if (threadType === 0) {
           // Direct 1:1 message quote only requires msgId
           quote = { msgId: parsed.quote_id };
         }
       }
 
-      const messagePayload = {
-        msg: parsed.text,
-      };
-      if (quote) {
-        messagePayload.quote = quote;
-      }
-      if (parsed.styles && parsed.styles.length > 0) {
-        messagePayload.styles = parsed.styles;
+      // Safety check: if text exceeds 1900 chars, split into slices
+      const MAX_BRIDGE_CHARS = 1900;
+      const textChunks = [];
+      if (parsed.text && parsed.text.length > MAX_BRIDGE_CHARS) {
+        console.warn(
+          `[ZaloBridge] Message text length (${parsed.text.length}) exceeds ${MAX_BRIDGE_CHARS}, splitting into sub-chunks`
+        );
+        for (let i = 0; i < parsed.text.length; i += MAX_BRIDGE_CHARS) {
+          textChunks.push(parsed.text.slice(i, i + MAX_BRIDGE_CHARS));
+        }
+      } else {
+        textChunks.push(parsed.text || "");
       }
 
-      try {
-        await this.zaloApi.sendMessage(
+      for (let i = 0; i < textChunks.length; i++) {
+        const chunkText = textChunks[i];
+        const messagePayload = {
+          msg: chunkText,
+        };
+        if (i === 0 && quote && textChunks.length === 1) {
+          messagePayload.quote = quote;
+        }
+        if (
+          i === 0 &&
+          textChunks.length === 1 &&
+          parsed.styles &&
+          parsed.styles.length > 0
+        ) {
+          messagePayload.styles = parsed.styles;
+        }
+
+        await this._sendMessageWithFallback(
           messagePayload,
           parsed.thread_id,
           threadType
         );
-      } catch (err) {
-        if (messagePayload.quote) {
-          console.warn(
-            `[ZaloBridge] Send with quote failed for ${parsed.thread_id}, retrying without quote:`,
-            err?.message || err
-          );
-          delete messagePayload.quote;
-          await this.zaloApi.sendMessage(
-            messagePayload,
-            parsed.thread_id,
-            threadType
-          );
-        } else {
-          throw err;
-        }
       }
     } else if (data.type === "typing") {
       const parsed = parseTypingMessage(data);
@@ -186,6 +195,46 @@ export class ZaloBridgeServer {
       }
     } else if (data.type === "get_status" || data.type === "status") {
       this.sendCurrentStatus(ws);
+    }
+  }
+
+  async _sendMessageWithFallback(payload, threadId, threadType) {
+    // Tier 1: Try sending with full payload (quote + styles if present)
+    try {
+      return await this.zaloApi.sendMessage(payload, threadId, threadType);
+    } catch (err1) {
+      // Tier 2: If quote was present, retry without quote
+      if (payload.quote) {
+        console.warn(
+          `[ZaloBridge] Send with quote failed for ${threadId}, retrying without quote:`,
+          err1?.message || err1
+        );
+        delete payload.quote;
+        try {
+          return await this.zaloApi.sendMessage(payload, threadId, threadType);
+        } catch (err2) {
+          // Tier 3: If styles was present, retry plain text without styles
+          if (payload.styles) {
+            console.warn(
+              `[ZaloBridge] Send with styles failed for ${threadId}, retrying plain text:`,
+              err2?.message || err2
+            );
+            delete payload.styles;
+            return await this.zaloApi.sendMessage(payload, threadId, threadType);
+          }
+          throw err2;
+        }
+      } else if (payload.styles) {
+        // Tier 3: If no quote but styles was present, retry plain text without styles
+        console.warn(
+          `[ZaloBridge] Send with styles failed for ${threadId}, retrying plain text:`,
+          err1?.message || err1
+        );
+        delete payload.styles;
+        return await this.zaloApi.sendMessage(payload, threadId, threadType);
+      } else {
+        throw err1;
+      }
     }
   }
 

@@ -21,17 +21,8 @@ def utf16_len(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
-def format_for_zalo(content: str) -> tuple[str, list[dict[str, Any]]]:
-    """Format Markdown content for clean display on Zalo with native text styling.
-
-    Returns:
-        tuple[str, list[dict[str, Any]]]: A tuple containing:
-            - The cleaned, readable text stripped of ugly raw Markdown tokens.
-            - An array of Zalo style objects: `{"start": int, "len": int, "st": str}`.
-    """
-    if not content:
-        return "", []
-
+def _parse_lines(content: str) -> list[dict[str, Any]]:
+    """Parse Markdown content into structured lines with table and code expansions."""
     text = content.replace("\r\n", "\n").replace("\r", "\n")
 
     # Clean images: ![alt](url) -> [Hình ảnh: alt] (url) or [Hình ảnh] (url)
@@ -182,14 +173,51 @@ def format_for_zalo(content: str) -> tuple[str, list[dict[str, Any]]]:
             # Standard line
             processed_lines.append({"text": subline, "line_styles": [], "verbatim": False})
 
-
     flush_table()
+    return processed_lines
 
-    # Construct final text and calculate style offsets
+
+def _split_long_lines(
+    processed_lines: list[dict[str, Any]], max_len: int
+) -> list[dict[str, Any]]:
+    """Split any single line exceeding max_len into smaller chunks."""
+    result: list[dict[str, Any]] = []
+    for pline in processed_lines:
+        text = pline["text"]
+        if len(text) <= max_len:
+            result.append(pline)
+            continue
+
+        start = 0
+        while start < len(text):
+            if len(text) - start <= max_len:
+                sub = text[start:]
+                start = len(text)
+            else:
+                cut = text.rfind(" ", start, start + max_len)
+                if cut == -1 or cut <= start:
+                    cut = start + max_len
+                sub = text[start:cut]
+                start = cut + 1 if cut < len(text) and text[cut] == " " else cut
+
+            result.append(
+                {
+                    "text": sub,
+                    "line_styles": pline.get("line_styles", []),
+                    "verbatim": pline.get("verbatim", False),
+                }
+            )
+    return result
+
+
+def _render_lines_group(
+    lines_group: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """Render a sequence of structured lines into Zalo-compatible text and style spans."""
     out_parts: list[str] = []
     styles: list[dict[str, Any]] = []
 
-    for i, pline in enumerate(processed_lines):
+    for i, pline in enumerate(lines_group):
         if i > 0:
             out_parts.append("\n")
 
@@ -240,3 +268,59 @@ def format_for_zalo(content: str) -> tuple[str, list[dict[str, Any]]]:
 
     final_str = "".join(out_parts)
     return final_str, styles
+
+
+def format_for_zalo(content: str) -> tuple[str, list[dict[str, Any]]]:
+    """Format Markdown content for clean display on Zalo with native text styling.
+
+    Returns:
+        tuple[str, list[dict[str, Any]]]: A tuple containing:
+            - The cleaned, readable text stripped of ugly raw Markdown tokens.
+            - An array of Zalo style objects: `{"start": int, "len": int, "st": str}`.
+    """
+    if not content:
+        return "", []
+
+    lines = _parse_lines(content)
+    return _render_lines_group(lines)
+
+
+def format_and_split_for_zalo(
+    content: str, max_len: int = 1200
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Format Markdown content and split into chunks of at most `max_len` characters.
+
+    Each chunk contains clean text and corresponding relative style offsets,
+    guaranteeing that neither text length nor style payload overflows Zalo Web limits.
+
+    Returns:
+        list[tuple[str, list[dict[str, Any]]]]: Chunks of (text, styles).
+    """
+    if not content:
+        return [("", [])]
+
+    raw_lines = _parse_lines(content)
+    processed_lines = _split_long_lines(raw_lines, max_len=max_len)
+
+    chunks: list[tuple[str, list[dict[str, Any]]]] = []
+    curr_group: list[dict[str, Any]] = []
+    curr_len = 0
+
+    for pline in processed_lines:
+        line_len = len(pline["text"]) + 1
+        if curr_group and (curr_len + line_len > max_len):
+            txt, st = _render_lines_group(curr_group)
+            if txt.strip():
+                chunks.append((txt, st))
+            curr_group = [pline]
+            curr_len = line_len
+        else:
+            curr_group.append(pline)
+            curr_len += line_len
+
+    if curr_group:
+        txt, st = _render_lines_group(curr_group)
+        if txt.strip() or not chunks:
+            chunks.append((txt, st))
+
+    return chunks or [("", [])]

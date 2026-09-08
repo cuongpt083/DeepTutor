@@ -258,4 +258,151 @@ test("ZaloBridgeServer resolves cached quote for group and retries without quote
   }
 });
 
+test("ZaloBridgeServer skips quote for media messages in 1:1 user chat", async () => {
+  const server = new ZaloBridgeServer({
+    port: 3993,
+    token: "",
+    sessionPath: "/tmp/test-zalo-session.json",
+  });
 
+  // Cached photo message
+  server.recentMessages.set("msg_photo_99", {
+    msgId: "msg_photo_99",
+    msgType: "chat.photo",
+    uidFrom: "user_author",
+    content: { href: "https://photo.jpg" },
+    ts: 1725390000000,
+  });
+
+  const sentPayloads = [];
+  server.zaloApi = {
+    getContext: () => ({ uid: "bot_123" }),
+    sendMessage: async (payload, threadId, threadType) => {
+      sentPayloads.push({ payload, threadId, threadType });
+      return { message: { msgId: 300 } };
+    },
+  };
+
+  await server.start();
+
+  try {
+    const ws = new WebSocket("ws://127.0.0.1:3993");
+    await new Promise((resolve) => ws.once("open", resolve));
+
+    ws.send(
+      JSON.stringify({
+        type: "send",
+        thread_id: "user_777",
+        thread_type: "user",
+        text: "Here is your nutrition analysis",
+        quote_id: "msg_photo_99",
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(sentPayloads.length, 1);
+    assert.equal(sentPayloads[0].threadType, 0);
+    // In 1:1 chat, media quote must NOT be attached
+    assert.equal(sentPayloads[0].payload.quote, undefined);
+    assert.equal(sentPayloads[0].payload.msg, "Here is your nutrition analysis");
+
+    ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+
+test("ZaloBridgeServer falls back to plain text when styles fail", async () => {
+  const server = new ZaloBridgeServer({
+    port: 3992,
+    token: "",
+    sessionPath: "/tmp/test-zalo-session.json",
+  });
+
+  const attempts = [];
+  server.zaloApi = {
+    getContext: () => ({ uid: "bot_123" }),
+    sendMessage: async (payload, threadId, threadType) => {
+      attempts.push({ payload: { ...payload }, threadId, threadType });
+      if (payload.styles) {
+        throw new Error("Invalid text properties");
+      }
+      return { message: { msgId: 400 } };
+    },
+  };
+
+  await server.start();
+
+  try {
+    const ws = new WebSocket("ws://127.0.0.1:3992");
+    await new Promise((resolve) => ws.once("open", resolve));
+
+    ws.send(
+      JSON.stringify({
+        type: "send",
+        thread_id: "user_888",
+        thread_type: "user",
+        text: "Formatted text",
+        styles: [{ start: 0, len: 9, st: "b" }],
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(attempts.length, 2);
+    // Attempt 1: sent with styles, failed
+    assert.deepEqual(attempts[0].payload.styles, [{ start: 0, len: 9, st: "b" }]);
+    // Attempt 2: retried plain text without styles, succeeded
+    assert.equal(attempts[1].payload.styles, undefined);
+    assert.equal(attempts[1].payload.msg, "Formatted text");
+
+    ws.close();
+  } finally {
+    await server.stop();
+  }
+});
+
+test("ZaloBridgeServer splits oversized messages exceeding 1900 chars", async () => {
+  const server = new ZaloBridgeServer({
+    port: 3991,
+    token: "",
+    sessionPath: "/tmp/test-zalo-session.json",
+  });
+
+  const sent = [];
+  server.zaloApi = {
+    getContext: () => ({ uid: "bot_123" }),
+    sendMessage: async (payload, threadId, threadType) => {
+      sent.push({ payload, threadId, threadType });
+      return { message: { msgId: 500 } };
+    },
+  };
+
+  await server.start();
+
+  try {
+    const ws = new WebSocket("ws://127.0.0.1:3991");
+    await new Promise((resolve) => ws.once("open", resolve));
+
+    const oversizedText = "A".repeat(2500);
+    ws.send(
+      JSON.stringify({
+        type: "send",
+        thread_id: "user_999",
+        thread_type: "user",
+        text: oversizedText,
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(sent.length, 2);
+    assert.equal(sent[0].payload.msg.length, 1900);
+    assert.equal(sent[1].payload.msg.length, 600);
+
+    ws.close();
+  } finally {
+    await server.stop();
+  }
+});
