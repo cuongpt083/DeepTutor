@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import time
 from typing import Any, Awaitable, Callable
 
 from deeptutor.agents.base_agent import BaseAgent
@@ -191,6 +192,16 @@ class ContextBuilder:
             if generation_limit is not None:
                 output_cap = min(output_cap, generation_limit)
         return min(ratio_budget, output_cap)
+
+    @staticmethod
+    def _trim_history_to_budget(history: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+        trimmed = list(history)
+        while len(trimmed) > 1 and count_tokens(build_history_text(trimmed)) > budget:
+            summary_prefix = 1 if trimmed and trimmed[0].get("role") == "system" else 0
+            if len(trimmed) <= summary_prefix + 1:
+                break
+            trimmed.pop(summary_prefix)
+        return trimmed
 
     def _recent_budget(self, budget: int) -> int:
         # Keep the original ratio-based split independent of the summarizer's
@@ -473,6 +484,22 @@ class ContextBuilder:
                 budget=budget,
             )
 
+        if _session_cache_is_warm(session):
+            # Rewriting the compacted summary busts the cached prefix for
+            # every subsequent round. While the provider TTL is still warm,
+            # keep the stored summary and drop the oldest unsummarized turns
+            # for this request only — the next cold turn can compact for real.
+            final_history = self._trim_history_to_budget(current_history, budget)
+            final_text = build_history_text(final_history)
+            return ContextBuildResult(
+                conversation_history=final_history,
+                conversation_summary=stored_summary,
+                context_text=final_text,
+                events=[],
+                token_count=count_tokens(final_text),
+                budget=budget,
+            )
+
         older_unsummarized, recent_messages = self._select_recent_messages(
             unsummarized, recent_budget
         )
@@ -528,11 +555,7 @@ class ContextBuilder:
             # unsummarized turns as fit; nothing is marked as summarized, so
             # the next turn retries with the full material.
             final_history = self._build_history(stored_summary, unsummarized)
-        while len(final_history) > 1 and count_tokens(build_history_text(final_history)) > budget:
-            summary_prefix = 1 if final_history and final_history[0].get("role") == "system" else 0
-            if len(final_history) <= summary_prefix + 1:
-                break
-            final_history.pop(summary_prefix)
+        final_history = self._trim_history_to_budget(final_history, budget)
 
         final_text = build_history_text(final_history)
         return ContextBuildResult(
@@ -543,6 +566,17 @@ class ContextBuilder:
             token_count=count_tokens(final_text),
             budget=budget,
         )
+
+
+def _session_cache_is_warm(session: dict[str, Any]) -> bool:
+    """True when the last session write is still inside the provider cache TTL."""
+    from deeptutor.services.llm.prompt_cache import PROMPT_CACHE_TTL_SECONDS
+
+    try:
+        stamp = float(session.get("updated_at"))
+    except (TypeError, ValueError):
+        return False
+    return (time.time() - stamp) < PROMPT_CACHE_TTL_SECONDS
 
 
 __all__ = [

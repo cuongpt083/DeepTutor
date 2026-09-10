@@ -55,6 +55,7 @@ from deeptutor.runtime.agentic.usage import (
 from deeptutor.runtime.stream_bus import StreamBus
 from deeptutor.services.llm import clean_thinking_tags
 from deeptutor.services.llm.multimodal import should_degrade_to_text, strip_image_parts_inplace
+from deeptutor.services.llm.prompt_cache import apply_to_completion_kwargs
 from deeptutor.services.llm.request_compat import (
     is_image_input_unsupported,
     is_stream_options_unsupported,
@@ -172,6 +173,7 @@ async def run_labeled_step(
         "stream": True,
         **completion_kwargs,
     }
+    apply_to_completion_kwargs(kwargs, model=model, binding=binding)
     auto_stream_options_added = False
     if usage is not None and "stream_options" not in kwargs:
         kwargs["stream_options"] = {"include_usage": True}

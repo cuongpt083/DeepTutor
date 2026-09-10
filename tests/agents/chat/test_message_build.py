@@ -7,8 +7,27 @@ used to filter history to user/assistant roles, silently dropping it.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from deeptutor.agents.chat.agentic_pipeline import AgenticChatPipeline
 from deeptutor.core.context import UnifiedContext
+
+
+@pytest.fixture(autouse=True)
+def _fake_llm_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = SimpleNamespace(
+        binding="openai",
+        model="gpt-test",
+        api_key="sk-test",
+        base_url="https://example.test/v1",
+        api_version=None,
+    )
+    monkeypatch.setattr(
+        "deeptutor.agents.loop.pipeline.get_llm_config",
+        lambda: cfg,
+    )
 
 
 def test_summary_system_message_reaches_messages() -> None:
@@ -28,17 +47,16 @@ def test_summary_system_message_reaches_messages() -> None:
         enabled_tools=[],
     )
 
-    # The summary rides directly after the main system prompt, before history.
-    assert messages[1]["role"] == "system"
-    assert "earlier turns summary" in str(messages[1]["content"])
-    assert messages[2] == {"role": "user", "content": "old question"}
-    # Exactly one summary injection — no duplicates elsewhere.
-    summary_count = sum(
-        1
-        for m in messages[1:]
-        if m["role"] == "system" and "earlier turns summary" in str(m["content"])
-    )
-    assert summary_count == 1
+    # The summary is the last block of the single system payload, after the
+    # cache breakpoint — a second role=system row would overwrite the tutor
+    # prefix on Anthropic and bust the cached identity/tools bytes.
+    assert messages[0]["role"] == "system"
+    system = messages[0]["content"]
+    assert isinstance(system, list)
+    assert "earlier turns summary" in system[-1]["text"]
+    assert "old question" not in system[-1]["text"]
+    assert messages[1] == {"role": "user", "content": "old question"}
+    assert sum(1 for m in messages if m["role"] == "system") == 1
 
 
 def test_empty_system_entries_still_filtered() -> None:

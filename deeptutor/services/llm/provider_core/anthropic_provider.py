@@ -15,6 +15,7 @@ from typing import Any
 
 import json_repair
 
+from deeptutor.services.llm.prompt_cache import mark_anthropic_payload
 from deeptutor.services.llm.provider_core.base import LLMProvider, LLMResponse, ToolCallRequest
 from deeptutor.services.session.provider_response_state import (
     normalize_provider_response_state,
@@ -338,44 +339,10 @@ class AnthropicProvider(LLMProvider):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
     ) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]] | None]:
-        marker = {"type": "ephemeral"}
-        # Anthropic rejects a request with more than 4 cache_control breakpoints.
-        # Budget them across system + message + tools instead of marking each
-        # section independently, which could reach 5+ once enough tools are
-        # registered (system + message + 3 tool markers at 11-15 tools).
-        budget = 4
-
-        if isinstance(system, str) and system:
-            system = [{"type": "text", "text": system, "cache_control": marker}]
-            budget -= 1
-        elif isinstance(system, list) and system:
-            system = list(system)
-            system[-1] = {**system[-1], "cache_control": marker}
-            budget -= 1
-
-        new_msgs = list(messages)
-        if len(new_msgs) >= 3:
-            m = new_msgs[-2]
-            c = m.get("content")
-            if isinstance(c, str):
-                new_msgs[-2] = {
-                    **m,
-                    "content": [{"type": "text", "text": c, "cache_control": marker}],
-                }
-                budget -= 1
-            elif isinstance(c, list) and c:
-                nc = list(c)
-                nc[-1] = {**nc[-1], "cache_control": marker}
-                new_msgs[-2] = {**m, "content": nc}
-                budget -= 1
-
-        new_tools = tools
-        if tools and budget > 0:
-            new_tools = list(tools)
-            for idx in cls._tool_cache_marker_indices(new_tools)[:budget]:
-                new_tools[idx] = {**new_tools[idx], "cache_control": marker}
-
-        return system, new_msgs, new_tools
+        # Anthropic rejects more than 4 cache_control breakpoints. Mark the
+        # *first* system block (stable tutor prefix) so a trailing summary
+        # or attachment block can change without busting the cache.
+        return mark_anthropic_payload(system, messages, tools)
 
     # ------------------------------------------------------------------
     # Build API kwargs
@@ -493,6 +460,10 @@ class AnthropicProvider(LLMProvider):
                 "completion_tokens": response.usage.output_tokens,
                 "total_tokens": total_prompt + response.usage.output_tokens,
             }
+            if cache_read:
+                usage["cache_read_tokens"] = int(cache_read)
+            if cache_creation:
+                usage["cache_creation_tokens"] = int(cache_creation)
 
         return LLMResponse(
             content="".join(content_parts) or None,
@@ -534,7 +505,15 @@ class AnthropicProvider(LLMProvider):
             reasoning_effort,
             tool_choice,
         )
-        for key in ("response_format", "seed", "logit_bias", "stream", "stream_options"):
+        for key in (
+            "response_format",
+            "seed",
+            "logit_bias",
+            "stream",
+            "stream_options",
+            "prompt_cache_key",
+            "deeptutor_session_id",
+        ):
             extra_kwargs.pop(key, None)
         kwargs.update({k: v for k, v in extra_kwargs.items() if v is not None})
         try:
@@ -565,7 +544,15 @@ class AnthropicProvider(LLMProvider):
             reasoning_effort,
             tool_choice,
         )
-        for key in ("response_format", "seed", "logit_bias", "stream", "stream_options"):
+        for key in (
+            "response_format",
+            "seed",
+            "logit_bias",
+            "stream",
+            "stream_options",
+            "prompt_cache_key",
+            "deeptutor_session_id",
+        ):
             extra_kwargs.pop(key, None)
         kwargs.update({k: v for k, v in extra_kwargs.items() if v is not None})
         idle_timeout_s = 90

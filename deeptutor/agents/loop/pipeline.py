@@ -459,16 +459,25 @@ class AgenticLoopPipeline:
         and the KB cache prefix is preserved. The KB seed rides inside the
         trailing user message, not the system prompt.
         """
-        system_prompt = self._build_system_prompt(
-            enabled_tools,
-            context,
+        self._last_prompt_blocks = self._prompt_assembler.blocks(
+            context=context,
+            tool_manifest=self._tool_manifest(enabled_tools),
+            kb_note=self._kb_system_note(context),
+            deferred_tools_manifest=(
+                self._deferred_tools_manifest() if include_tool_manifest else ""
+            ),
+            notebook_manifest=self._build_notebook_manifest(),
+            workspace_note=self._workspace_system_note(context),
+            capability_blocks=self._capability_system_blocks(context),
             include_tool_manifest=include_tool_manifest,
         )
+        stable, volatile = self._prompt_assembler.render_parts(self._last_prompt_blocks)
         user_content = self._prompt_assembler.user_message(
             context=context,
             kb_seed=kb_seed,
         )
-        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        summary_parts: list[str] = []
+        history_messages: list[dict[str, Any]] = []
         for item in context.conversation_history:
             role = item.get("role")
             content = item.get("content")
@@ -476,17 +485,29 @@ class AgenticLoopPipeline:
                 message: dict[str, Any] = {"role": role, "content": content}
                 if role == "assistant" and isinstance(item.get("_provider_response_state"), dict):
                     message["_provider_response_state"] = item["_provider_response_state"]
-                messages.append(message)
+                history_messages.append(message)
             elif role == "system" and isinstance(content, str) and content.strip():
                 # ContextBuilder emits the compressed-history summary as a
-                # leading system message; deliver it right after the system
-                # prompt so compacted turns stay visible to the model.
+                # leading system message. Fold it into the *same* system
+                # payload, after the cache breakpoint: a second role=system
+                # row would overwrite the tutor prefix on Anthropic, and
+                # rewriting the summary must not bust the stable prefix.
                 header = _prompt_text(
                     self._prompts,
                     ("notices", "conversation_summary_header"),
                     "[Conversation summary]",
                 )
-                messages.append({"role": "system", "content": f"{header}\n{content}"})
+                summary_parts.append(f"{header}\n{content}")
+        system_parts: list[dict[str, str]] = [{"type": "text", "text": stable}]
+        if volatile:
+            system_parts.append({"type": "text", "text": volatile})
+        if summary_parts:
+            system_parts.append({"type": "text", "text": "\n\n".join(summary_parts)})
+        system_content: str | list[dict[str, str]] = (
+            stable if len(system_parts) == 1 else system_parts
+        )
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_content}]
+        messages.extend(history_messages)
         messages.append({"role": "user", "content": user_content})
         return self._prepare_messages_with_attachments(messages, context)
 
@@ -1725,9 +1746,12 @@ class AgenticLoopPipeline:
 
     @staticmethod
     def _workspace_key(context: UnifiedContext) -> str:
+        # Session-scoped so the path in the system prompt is byte-stable
+        # across consecutive turns (turn_id would bust the cache prefix
+        # every message). Exec uses the same key.
         raw = str(
-            context.metadata.get("turn_id")
-            or context.session_id
+            context.session_id
+            or context.metadata.get("turn_id")
             or context.metadata.get("message_id")
             or "direct"
         )

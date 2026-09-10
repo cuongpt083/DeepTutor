@@ -54,6 +54,7 @@ from deeptutor.services.llm import (
 )
 from deeptutor.services.llm.capabilities import threads_session_id
 from deeptutor.services.llm.multimodal import should_degrade_to_text, strip_image_parts_inplace
+from deeptutor.services.llm.prompt_cache import apply_to_completion_kwargs
 from deeptutor.services.llm.request_compat import (
     is_image_input_unsupported,
     is_stream_options_unsupported,
@@ -805,8 +806,15 @@ class AgentLoop:
             "stream": True,
             **self.pipeline._completion_kwargs(max_tokens=max_tokens),
         }
-        if threads_session_id(self.pipeline.binding):
-            kwargs["deeptutor_session_id"] = self.context.session_id
+        session_id = str(self.context.session_id or "").strip()
+        if threads_session_id(self.pipeline.binding) and session_id:
+            kwargs["deeptutor_session_id"] = session_id
+        apply_to_completion_kwargs(
+            kwargs,
+            model=self.pipeline.model,
+            binding=self.pipeline.binding,
+            session_id=session_id,
+        )
         if self.pipeline.usage is not None:
             kwargs["stream_options"] = {"include_usage": True}
         if tool_schemas:

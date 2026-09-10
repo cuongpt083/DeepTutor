@@ -98,6 +98,37 @@ def test_counts_map_responses_api_dialect() -> None:
     }
 
 
+def test_counts_keep_anthropic_cache_fields() -> None:
+    assert token_counts(
+        {
+            "prompt_tokens": 1200,
+            "completion_tokens": 40,
+            "total_tokens": 1240,
+            "cache_read_input_tokens": 900,
+            "cache_creation_input_tokens": 100,
+        }
+    ) == {
+        "prompt_tokens": 1200,
+        "completion_tokens": 40,
+        "total_tokens": 1240,
+        "cache_read_tokens": 900,
+        "cache_creation_tokens": 100,
+    }
+
+
+def test_counts_read_openai_cached_tokens_from_details() -> None:
+    counts = token_counts(
+        {
+            "prompt_tokens": 800,
+            "completion_tokens": 20,
+            "total_tokens": 820,
+            "prompt_tokens_details": {"cached_tokens": 500},
+        }
+    )
+    assert counts["cache_read_tokens"] == 500
+    assert "cache_creation_tokens" not in counts
+
+
 def test_counts_map_responses_api_dialect_from_attributes() -> None:
     obj = type("U", (), {"input_tokens": 8, "output_tokens": 2})()
     assert token_counts(obj, prompt="input_tokens", completion="output_tokens") == {

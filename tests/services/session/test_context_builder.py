@@ -611,6 +611,63 @@ class TestContextBuilderSummarizePaths:
         store.update_summary.assert_awaited_once_with("s1", "NEW SUMMARY", 3)
 
     @pytest.mark.asyncio
+    async def test_warm_cache_window_skips_summarize(self) -> None:
+        import time
+
+        messages = [
+            {"id": 1, "role": "user", "content": "old " * 200},
+            {"id": 2, "role": "assistant", "content": "older reply " * 200},
+            {"id": 3, "role": "user", "content": "mid " * 400},
+            {"id": 4, "role": "assistant", "content": "recent answer"},
+        ]
+        store = _make_store(messages, summary="OLD SUMMARY", up_to=2)
+        store.get_session = AsyncMock(
+            return_value={
+                "id": "s1",
+                "compressed_summary": "OLD SUMMARY",
+                "summary_up_to_msg_id": 2,
+                "updated_at": time.time(),
+            }
+        )
+        builder = ContextBuilder(store=store)
+        builder._summarize = AsyncMock(return_value=("NEW SUMMARY", []))
+
+        result = await builder.build(session_id="s1", llm_config=_small_window_cfg())
+
+        builder._summarize.assert_not_awaited()
+        store.update_summary.assert_not_awaited()
+        assert result.conversation_summary == "OLD SUMMARY"
+
+    @pytest.mark.asyncio
+    async def test_cold_cache_window_still_summarizes(self) -> None:
+        import time
+
+        messages = [
+            {"id": 1, "role": "user", "content": "RAW_OLDEST_MARKER " + "alpha " * 90},
+            {"id": 2, "role": "assistant", "content": "beta " * 90},
+            {"id": 3, "role": "user", "content": "gamma " * 200},
+            {"id": 4, "role": "assistant", "content": "delta " * 400},
+            {"id": 5, "role": "user", "content": "recent question"},
+            {"id": 6, "role": "assistant", "content": "recent answer"},
+        ]
+        store = _make_store(messages, summary="OLD SUMMARY", up_to=2)
+        store.get_session = AsyncMock(
+            return_value={
+                "id": "s1",
+                "compressed_summary": "OLD SUMMARY",
+                "summary_up_to_msg_id": 2,
+                "updated_at": time.time() - 10_000,
+            }
+        )
+        builder = ContextBuilder(store=store)
+        builder._summarize = AsyncMock(return_value=("NEW SUMMARY", []))
+
+        result = await builder.build(session_id="s1", llm_config=_small_window_cfg())
+
+        builder._summarize.assert_awaited()
+        assert result.conversation_summary == "NEW SUMMARY"
+
+    @pytest.mark.asyncio
     async def test_failure_keeps_watermark_and_degrades_for_turn(self) -> None:
         messages = [
             {"id": 1, "role": "user", "content": "old " * 100},

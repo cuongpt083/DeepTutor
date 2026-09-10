@@ -84,6 +84,28 @@ class _PydanticLikeUsage:
         return {"prompt_tokens": 5, "completion_tokens": 6, "total_tokens": 11}
 
 
+def test_cache_hits_are_priced_below_full_input() -> None:
+    tracker = UsageTracker(model="claude-sonnet-4")
+    record_streamed_usage(
+        tracker,
+        {
+            "prompt_tokens": 1000,
+            "completion_tokens": 0,
+            "total_tokens": 1000,
+            "cache_read_tokens": 1000,
+        },
+    )
+    summary = tracker.summary()
+    assert summary is not None
+    assert summary["cache_read_tokens"] == 1000
+    full_input = UsageTracker(model="claude-sonnet-4")
+    record_streamed_usage(
+        full_input,
+        {"prompt_tokens": 1000, "completion_tokens": 0, "total_tokens": 1000},
+    )
+    assert summary["total_cost_usd"] < full_input.summary()["total_cost_usd"]
+
+
 def test_records_model_dump_frame() -> None:
     tracker = UsageTracker()
     tracker.add_from_response(_PydanticLikeUsage())

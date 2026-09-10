@@ -28,6 +28,8 @@ class UsageTracker:
         self.prompt_tokens: int = 0
         self.completion_tokens: int = 0
         self.total_tokens: int = 0
+        self.cache_read_tokens: int = 0
+        self.cache_creation_tokens: int = 0
         self.calls: int = 0
         self.model: str | None = model
 
@@ -38,6 +40,8 @@ class UsageTracker:
         self.prompt_tokens += counts["prompt_tokens"]
         self.completion_tokens += counts["completion_tokens"]
         self.total_tokens += counts["total_tokens"]
+        self.cache_read_tokens += counts.get("cache_read_tokens", 0)
+        self.cache_creation_tokens += counts.get("cache_creation_tokens", 0)
         self.calls += 1
 
     def add_estimated(self, *, input_chars: int, output_chars: int) -> None:
@@ -84,18 +88,31 @@ class UsageTracker:
         if self.model:
             # Local import keeps ``core.agentic`` import-light at module load.
             from deeptutor.logging.stats.llm_stats import get_pricing
+            from deeptutor.services.llm.prompt_cache import cache_price_multipliers
 
             pricing = get_pricing(self.model)
-            cost_usd = (self.prompt_tokens / 1000.0) * pricing.get("input", 0.0) + (
-                self.completion_tokens / 1000.0
-            ) * pricing.get("output", 0.0)
-        return {
+            input_price = pricing.get("input", 0.0)
+            read_mult, write_mult = cache_price_multipliers(self.model)
+            uncached = max(
+                0, self.prompt_tokens - self.cache_read_tokens - self.cache_creation_tokens
+            )
+            cost_usd = (
+                (uncached / 1000.0) * input_price
+                + (self.cache_read_tokens / 1000.0) * input_price * read_mult
+                + (self.cache_creation_tokens / 1000.0) * input_price * write_mult
+                + (self.completion_tokens / 1000.0) * pricing.get("output", 0.0)
+            )
+        summary = {
             "total_cost_usd": cost_usd,
             "total_tokens": self.total_tokens,
             "total_calls": self.calls,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
         }
+        if self.cache_read_tokens or self.cache_creation_tokens:
+            summary["cache_read_tokens"] = self.cache_read_tokens
+            summary["cache_creation_tokens"] = self.cache_creation_tokens
+        return summary
 
 
 def message_content_chars(message: dict[str, Any]) -> int:

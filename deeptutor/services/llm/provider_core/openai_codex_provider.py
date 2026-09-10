@@ -51,10 +51,12 @@ class OpenAICodexProvider(LLMProvider):
         reasoning_effort: str | None,
         tool_choice: str | dict[str, Any] | None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
+        prompt_cache_key: str | None = None,
     ) -> LLMResponse:
         model_name = model or self.default_model
         model_slug = _strip_model_prefix(model_name)
         system_prompt, input_items = convert_messages(messages)
+        cache_key = str(prompt_cache_key or "").strip() or _prompt_cache_key(messages)
 
         body: dict[str, Any] = {
             "model": model_slug,
@@ -64,7 +66,7 @@ class OpenAICodexProvider(LLMProvider):
             "input": input_items,
             "text": {"verbosity": "medium"},
             "include": ["reasoning.encrypted_content"],
-            "prompt_cache_key": _prompt_cache_key(messages),
+            "prompt_cache_key": cache_key,
             "tool_choice": convert_tool_choice(tool_choice) or "auto",
             "parallel_tool_calls": True,
         }
@@ -140,8 +142,15 @@ class OpenAICodexProvider(LLMProvider):
         tool_choice: str | dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        del max_tokens, temperature, kwargs
-        return await self._call_codex(messages, tools, model, reasoning_effort, tool_choice)
+        del max_tokens, temperature
+        return await self._call_codex(
+            messages,
+            tools,
+            model,
+            reasoning_effort,
+            tool_choice,
+            prompt_cache_key=_codex_cache_key(kwargs),
+        )
 
     async def chat_stream(
         self,
@@ -156,7 +165,7 @@ class OpenAICodexProvider(LLMProvider):
         on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        del max_tokens, temperature, on_reasoning_delta, kwargs
+        del max_tokens, temperature, on_reasoning_delta
         return await self._call_codex(
             messages,
             tools,
@@ -164,6 +173,7 @@ class OpenAICodexProvider(LLMProvider):
             reasoning_effort,
             tool_choice,
             on_content_delta,
+            prompt_cache_key=_codex_cache_key(kwargs),
         )
 
     def get_default_model(self) -> str:
@@ -217,6 +227,10 @@ async def _request_codex(
                     _friendly_error(response.status_code),
                 )
             return await consume_sse(response, on_content_delta)
+
+
+def _codex_cache_key(kwargs: dict[str, Any]) -> str:
+    return str(kwargs.get("prompt_cache_key") or kwargs.get("deeptutor_session_id") or "").strip()
 
 
 def _prompt_cache_key(messages: list[dict[str, Any]]) -> str:

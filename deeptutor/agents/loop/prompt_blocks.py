@@ -20,6 +20,11 @@ from deeptutor.capabilities.protocol import PromptBlock
 from deeptutor.core.context import UnifiedContext
 from deeptutor.services.prompt.language import append_language_directive, normalize_language
 
+# Per-turn blocks that must sit *after* the cache breakpoint so attachments
+# and sidebar grounding cannot bust the stable tutor prefix (identity, tools,
+# memory, skills) across rounds and consecutive turns.
+VOLATILE_BLOCK_NAMES: frozenset[str] = frozenset({"sidebar_tutor_context", "sources"})
+
 
 class LoopPromptAssembler:
     """Build system prompts from explicit, category-named blocks."""
@@ -53,6 +58,36 @@ class LoopPromptAssembler:
             )
         )
 
+    @staticmethod
+    def _format_block(block: PromptBlock) -> str:
+        return f"## {block.name}\n{block.content.strip()}"
+
+    def render_parts(self, blocks: list[PromptBlock]) -> tuple[str, str]:
+        """Split assembled blocks into a cache-stable prefix and a volatile suffix.
+
+        The language directive rides on the prefix: it is session-stable and
+        belongs in the cached bytes. Compacted-history summaries are *not*
+        assembled here — the pipeline appends them after the volatile suffix
+        so a rewrite cannot bust the tutor prefix.
+        """
+        stable: list[str] = []
+        volatile: list[str] = []
+        for block in blocks:
+            if not block.content.strip():
+                continue
+            target = volatile if block.name in VOLATILE_BLOCK_NAMES else stable
+            target.append(self._format_block(block))
+        # ``allow_user_override`` only here: chat has a user who can ask for a
+        # different language mid-conversation, and the strict directive plus
+        # the runtime policy above it otherwise make the model refuse them.
+        # Books, quizzes and research keep the strict form — nobody is asking.
+        stable_text = append_language_directive(
+            "\n\n---\n\n".join(stable),
+            self.language,
+            allow_user_override=True,
+        )
+        return stable_text, "\n\n---\n\n".join(volatile)
+
     def render(self, blocks: list[PromptBlock]) -> str:
         """Join assembled blocks into the system prompt string.
 
@@ -61,14 +96,10 @@ class LoopPromptAssembler:
         and render the very blocks it measures, instead of calling
         :meth:`blocks` a second time and risking drift.
         """
-        joined = "\n\n---\n\n".join(
-            f"## {block.name}\n{block.content.strip()}" for block in blocks if block.content.strip()
-        )
-        # ``allow_user_override`` only here: chat has a user who can ask for a
-        # different language mid-conversation, and the strict directive plus
-        # the runtime policy above it otherwise make the model refuse them.
-        # Books, quizzes and research keep the strict form — nobody is asking.
-        return append_language_directive(joined, self.language, allow_user_override=True)
+        stable, volatile = self.render_parts(blocks)
+        if volatile:
+            return f"{stable}\n\n---\n\n{volatile}"
+        return stable
 
     def blocks(
         self,
@@ -125,9 +156,10 @@ class LoopPromptAssembler:
             blocks.append(PromptBlock("notebooks", notebook_manifest))
         if workspace_note:
             blocks.append(PromptBlock("workspace", workspace_note))
-        # Volatile content deliberately gets NO system block: the KB seed
-        # rides in the trailing user message, so the system prompt stays
-        # byte-stable for the whole turn (every loop round shares one prefix).
+        # Per-turn attachments/sidebar are tagged volatile (see
+        # VOLATILE_BLOCK_NAMES) and rendered after the cache breakpoint.
+        # The KB seed rides in the trailing user message so even the volatile
+        # suffix stays byte-stable for every loop round of this turn.
         return blocks
 
     def foundation_blocks(self, context: UnifiedContext) -> list[PromptBlock]:

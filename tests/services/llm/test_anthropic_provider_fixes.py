@@ -121,6 +121,21 @@ def _count_cache_control(system: Any, messages: list[dict[str, Any]], tools: lis
     return total
 
 
+def test_cache_control_marks_first_system_block() -> None:
+    system = [
+        {"type": "text", "text": "stable prefix"},
+        {"type": "text", "text": "conversation summary"},
+    ]
+    messages = [
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": "b"},
+        {"role": "user", "content": "c"},
+    ]
+    marked, _, _ = AnthropicProvider._apply_cache_control(system, messages, None)
+    assert marked[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in marked[1]
+
+
 def test_cache_control_never_exceeds_four() -> None:
     messages = [
         {"role": "user", "content": "a"},

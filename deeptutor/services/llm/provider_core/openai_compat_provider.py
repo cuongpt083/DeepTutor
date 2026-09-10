@@ -28,6 +28,11 @@ from deeptutor.services.llm.capabilities import (
 )
 from deeptutor.services.llm.exceptions import LLMConfigError
 from deeptutor.services.llm.openai_http_client import openai_sdk_client_kwargs
+from deeptutor.services.llm.prompt_cache import (
+    mark_openai_messages,
+    wants_cache_control,
+    wants_prompt_cache_key,
+)
 from deeptutor.services.llm.provider_core.base import LLMProvider, LLMResponse, ToolCallRequest
 from deeptutor.services.llm.provider_core.openai_responses import (
     ToolArgsDeltaHook,
@@ -274,35 +279,7 @@ class OpenAICompatProvider(LLMProvider):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
-        cache_marker = {"type": "ephemeral"}
-        new_messages = list(messages)
-
-        def _mark(msg: dict[str, Any]) -> dict[str, Any]:
-            content = msg.get("content")
-            if isinstance(content, str):
-                return {
-                    **msg,
-                    "content": [
-                        {"type": "text", "text": content, "cache_control": cache_marker},
-                    ],
-                }
-            if isinstance(content, list) and content:
-                nc = list(content)
-                nc[-1] = {**nc[-1], "cache_control": cache_marker}
-                return {**msg, "content": nc}
-            return msg
-
-        if new_messages and new_messages[0].get("role") == "system":
-            new_messages[0] = _mark(new_messages[0])
-        if len(new_messages) >= 3:
-            new_messages[-2] = _mark(new_messages[-2])
-
-        new_tools = tools
-        if tools:
-            new_tools = list(tools)
-            for idx in cls._tool_cache_marker_indices(new_tools):
-                new_tools[idx] = {**new_tools[idx], "cache_control": cache_marker}
-        return new_messages, new_tools
+        return mark_openai_messages(messages, tools)
 
     # ------------------------------------------------------------------
     # Message sanitization
@@ -406,9 +383,12 @@ class OpenAICompatProvider(LLMProvider):
         model_name = model or self.default_model
         spec = self._spec
 
-        if spec and spec.supports_prompt_caching:
-            if any(model_name.lower().startswith(k) for k in ("anthropic/", "claude")):
-                messages, tools = self._apply_cache_control(messages, tools)
+        if (
+            spec
+            and spec.supports_prompt_caching
+            and wants_cache_control(model_name, getattr(spec, "name", None))
+        ):
+            messages, tools = self._apply_cache_control(messages, tools)
 
         if spec and spec.strip_model_prefix:
             model_name = model_name.split("/")[-1]
@@ -450,6 +430,22 @@ class OpenAICompatProvider(LLMProvider):
             kwargs["tool_choice"] = self._effective_tool_choice(tool_choice, model) or "auto"
 
         return kwargs
+
+    def _public_extra_kwargs(
+        self, extra_kwargs: dict[str, Any], model: str | None
+    ) -> dict[str, Any]:
+        """Drop internal keys and promote the session id to ``prompt_cache_key``."""
+        cleaned = {k: v for k, v in extra_kwargs.items() if v is not None}
+        session_id = str(cleaned.pop("deeptutor_session_id", "") or "").strip()
+        if (
+            session_id
+            and "prompt_cache_key" not in cleaned
+            and wants_prompt_cache_key(
+                getattr(self._spec, "name", None) or self._provider_name, model
+            )
+        ):
+            cleaned["prompt_cache_key"] = session_id
+        return cleaned
 
     def _should_use_responses_api(
         self,
@@ -991,7 +987,11 @@ class OpenAICompatProvider(LLMProvider):
                         reasoning_effort,
                         tool_choice,
                     )
-                    body.update(adapt_chat_kwargs_to_responses(extra_kwargs))
+                    body.update(
+                        adapt_chat_kwargs_to_responses(
+                            self._public_extra_kwargs(extra_kwargs, model)
+                        )
+                    )
                     result = parse_response_output(
                         await self._create_responses_with_status_retry(body)
                     )
@@ -1015,7 +1015,7 @@ class OpenAICompatProvider(LLMProvider):
                 reasoning_effort,
                 tool_choice,
             )
-            request_kwargs.update({k: v for k, v in extra_kwargs.items() if v is not None})
+            request_kwargs.update(self._public_extra_kwargs(extra_kwargs, model))
             try:
                 return self._parse(
                     await self._create_with_key_rotation(
@@ -1089,7 +1089,7 @@ class OpenAICompatProvider(LLMProvider):
             reasoning_effort,
             tool_choice,
         )
-        request_kwargs.update({k: v for k, v in extra_kwargs.items() if v is not None})
+        request_kwargs.update(self._public_extra_kwargs(extra_kwargs, model))
         idle_timeout_s = 90
         try:
             if self._should_use_responses_api(model, reasoning_effort, tools):
@@ -1103,7 +1103,11 @@ class OpenAICompatProvider(LLMProvider):
                         reasoning_effort,
                         tool_choice,
                     )
-                    body.update(adapt_chat_kwargs_to_responses(extra_kwargs))
+                    body.update(
+                        adapt_chat_kwargs_to_responses(
+                            self._public_extra_kwargs(extra_kwargs, model)
+                        )
+                    )
                     body["stream"] = True
                     stream = await self._create_responses_with_status_retry(body)
 

@@ -68,13 +68,28 @@ def token_counts(
     prompt_tokens = _as_int(frame.get(prompt))
     completion_tokens = _as_int(frame.get(completion))
     total_tokens = _as_int(frame.get(total)) or prompt_tokens + completion_tokens
-    if not (prompt_tokens or completion_tokens or total_tokens):
+    cache_read = _as_int(frame.get("cache_read_tokens") or frame.get("cache_read_input_tokens"))
+    cache_creation = _as_int(
+        frame.get("cache_creation_tokens") or frame.get("cache_creation_input_tokens")
+    )
+    if not cache_read:
+        details = frame.get("prompt_tokens_details")
+        if isinstance(details, Mapping):
+            cache_read = _as_int(details.get("cached_tokens"))
+        else:
+            cache_read = _as_int(getattr(details, "cached_tokens", 0) if details is not None else 0)
+    if not (prompt_tokens or completion_tokens or total_tokens or cache_read or cache_creation):
         return {}
-    return {
+    counts = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
     }
+    if cache_read:
+        counts["cache_read_tokens"] = cache_read
+    if cache_creation:
+        counts["cache_creation_tokens"] = cache_creation
+    return counts
 
 
 def _as_int(value: Any) -> int:
