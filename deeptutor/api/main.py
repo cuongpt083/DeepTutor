@@ -522,6 +522,9 @@ from deeptutor.api.routers.multi_user import router as multi_user_router  # noqa
 
 # Auth router is public — login/logout/register/status require no token
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+from deeptutor.api.routers import metrics as metrics_router  # noqa: E402
+
+app.include_router(metrics_router.router)
 app.include_router(outputs.router, prefix="/files/outputs", tags=["outputs"])
 app.include_router(
     workspace.files_router,
