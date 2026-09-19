@@ -22,6 +22,14 @@ import logging
 from typing import Any, Optional
 
 import httpx
+import time
+
+from deeptutor.core.observability.metrics import (
+    record_network_latency,
+    record_payload_bytes,
+    record_remote_request,
+    record_server_reported,
+)
 
 from .config import LightRagServerConfig
 
@@ -96,15 +104,47 @@ class LightRagServerClient:
         per cited source file); an older server that omits references yields an
         empty list rather than an error.
         """
-        async with self._open() as client:
-            resp = await client.post(
-                "/query",
-                json={"query": query, "mode": mode, "only_need_context": True},
+        start_time = time.perf_counter()
+        status_code = "error"
+        server_reported_time: Optional[float] = None
+        req_bytes = len(str(query or "").encode("utf-8"))
+        resp_bytes = 0
+
+        try:
+            async with self._open() as client:
+                resp = await client.post(
+                    "/query",
+                    json={"query": query, "mode": mode, "only_need_context": True},
+                )
+            status_code = str(resp.status_code)
+            resp_bytes = len(resp.content)
+            data = self._json(resp)
+            content = str(data.get("response") or "")
+            sources = _sources_from_references(data.get("references"))
+
+            raw_time = data.get("response_time")
+            if raw_time is not None:
+                try:
+                    server_reported_time = float(raw_time)
+                except (ValueError, TypeError):
+                    server_reported_time = None
+
+            return {"content": content, "sources": sources}
+        finally:
+            rtt = time.perf_counter() - start_time
+            record_remote_request(
+                endpoint="/query",
+                mode=mode,
+                status_code=status_code,
+                duration=rtt,
             )
-        data = self._json(resp)
-        content = str(data.get("response") or "")
-        sources = _sources_from_references(data.get("references"))
-        return {"content": content, "sources": sources}
+            record_payload_bytes(direction="request", mode=mode, num_bytes=req_bytes)
+            if resp_bytes > 0:
+                record_payload_bytes(direction="response", mode=mode, num_bytes=resp_bytes)
+            if server_reported_time is not None:
+                record_server_reported(mode=mode, duration=server_reported_time)
+                net_latency = max(0.0, rtt - server_reported_time)
+                record_network_latency(mode=mode, duration=net_latency)
 
     # ----- probing --------------------------------------------------------
 
