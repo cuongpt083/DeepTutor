@@ -16,6 +16,10 @@ from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.schema import DeliveryOverrides, StreamingSupport
+from deeptutor.partners.channels.discord_formatter import (
+    format_and_split_for_discord,
+    format_for_discord,
+)
 from deeptutor.partners.helpers import split_message
 
 DISCORD_API_BASE = "https://discord.com/api/v10"
@@ -140,7 +144,8 @@ class DiscordChannel(BaseChannel):
                     failed_media.append(Path(media_path).name)
 
             # Send text content
-            chunks = split_message(msg.content or "", MAX_MESSAGE_LEN)
+            formatted = format_for_discord(msg.content or "")
+            chunks = split_message(formatted, MAX_MESSAGE_LEN)
             if not chunks and failed_media and not sent_media:
                 chunks = split_message(
                     "\n".join(f"[attachment: {name} - send failed]" for name in failed_media),
@@ -204,7 +209,8 @@ class DiscordChannel(BaseChannel):
             await self._stop_typing(chat_id)
             # Final render: edit in the full text, splitting overflow into
             # follow-up messages (Discord caps content at 2000 chars).
-            chunks = split_message(buf.text, MAX_MESSAGE_LEN)
+            formatted = format_for_discord(buf.text)
+            chunks = split_message(formatted, MAX_MESSAGE_LEN)
             edit_url = f"{create_url}/{buf.message_id}"
             await self._api_request("PATCH", edit_url, {"content": chunks[0]})
             for chunk in chunks[1:]:
