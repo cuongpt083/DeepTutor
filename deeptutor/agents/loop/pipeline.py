@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -1441,8 +1442,12 @@ class AgenticLoopPipeline:
         context: UnifiedContext,
         stream: StreamBus,
     ) -> str:
-        # Only traditional RAG KBs are pre-seeded. PageIndex and capability-owned
-        # KBs are read with their tools inside the reasoning loop.
+        enable_preseed = os.getenv("ENABLE_KB_PRESEED", "false").lower() in ("true", "1", "yes")
+        if not enable_preseed:
+            return ""
+
+        # Only traditional RAG KBs are pre-seeded when ENABLE_KB_PRESEED=true.
+        # PageIndex and capability-owned KBs are read with their tools inside the reasoning loop.
         kbs = self._coexisting_rag_kbs(context)
         query = (context.user_message or "").strip()
         if not kbs or not query:
@@ -1764,14 +1769,20 @@ class AgenticLoopPipeline:
         rag_kbs = self._coexisting_rag_kbs(context)
         if rag_kbs:
             joined = ", ".join(rag_kbs)
-            rag_note = (
-                f"用户已挂载知识库：{joined}。调用 rag 时，kb_name 必须从其中选一个。"
-                if self.language == "zh"
-                else (
+            enable_preseed = os.getenv("ENABLE_KB_PRESEED", "false").lower() in ("true", "1", "yes")
+            if enable_preseed:
+                rag_note = (
                     f"Attached knowledge bases: {joined}. When calling rag, kb_name "
                     "must be one of these names."
                 )
-            )
+            else:
+                rag_note = (
+                    f"Attached knowledge bases: {joined}. If the user's question relates to documents, "
+                    "concepts, or topics in these knowledge bases, you MUST call the `rag` tool to retrieve "
+                    "context before answering (pass one of the attached names as kb_name). If the user is just "
+                    "engaging in casual conversation (such as greetings, gratitude, general chat, math, or generic code), "
+                    "answer directly without calling `rag`."
+                )
         return rag_note + self._kb_manifest_system_note() + self._pageindex_system_note()
 
     async def _prepare_kb_manifests(self, context: UnifiedContext) -> None:

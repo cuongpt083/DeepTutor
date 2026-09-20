@@ -110,6 +110,7 @@ services:
       - DEEPTUTOR_SANDBOX_RUNNER_URL=http://sandbox-runner:8900
       - DEEPTUTOR_WORKSPACE_ROOT=/workspace
       - DEEPTUTOR_WORKSPACE_ALLOWED_ROOTS=/workspace
+      - ENABLE_KB_PRESEED=${ENABLE_KB_PRESEED:-false}
 
       # Optional dependencies, re-applied on every start (#762). Installing
       # these with `docker exec` does not survive `compose down`, so declare
