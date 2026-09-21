@@ -1,12 +1,15 @@
 "use client";
 
-import { Fragment, memo, useMemo } from "react";
+import { Fragment, memo, useMemo, useState } from "react";
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import ModelThinkingCard from "@/components/common/ModelThinkingCard";
+import TtsVoiceCard from "@/components/common/TtsVoiceCard";
 import { useReading } from "@/context/ReadingContext";
 import type { StreamEvent } from "@/features/chat/model/protocol";
 import { useWatching } from "@/context/WatchingContext";
+import { extractTtsSummary } from "@/lib/tts-summary";
+
 import {
   hasVisibleMarkdownContent,
   repairChineseEmphasis,
@@ -98,9 +101,14 @@ function AssistantResponseImpl({
     watching.active,
     watching.material,
   ]);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const ttsInfo = useMemo(() => extractTtsSummary(citedContent), [citedContent]);
+  const effectiveContent = ttsInfo.hasSummary ? ttsInfo.fullContent : citedContent;
+
   const segments = useMemo(
-    () => parseModelThinkingSegments(stripArtifactAnnotations(citedContent)),
-    [citedContent],
+    () => parseModelThinkingSegments(stripArtifactAnnotations(effectiveContent)),
+    [effectiveContent],
   );
 
   // Decide whether the message has anything worth rendering. We consider both
@@ -108,11 +116,12 @@ function AssistantResponseImpl({
   // ever produced a <think> scratchpad should still render the collapsed card
   // instead of dropping the assistant bubble entirely.
   const hasRenderableSegment = useMemo(() => {
+    if (ttsInfo.hasSummary) return true;
     return segments.some((segment) => {
       if (segment.kind === "think") return segment.content.trim().length > 0;
       return hasVisibleMarkdownContent(segment.content);
     });
-  }, [segments]);
+  }, [segments, ttsInfo.hasSummary]);
 
   if (!hasRenderableSegment) return null;
 
@@ -128,38 +137,48 @@ function AssistantResponseImpl({
       aria-atomic="false"
       className={className}
     >
-      {segments.map((segment, index) => {
-        if (segment.kind === "think") {
+      {ttsInfo.hasSummary && (
+        <TtsVoiceCard
+          summary={ttsInfo.summary}
+          isExpanded={isExpanded}
+          onToggleExpand={() => setIsExpanded((prev) => !prev)}
+          language={language}
+        />
+      )}
+      {(!ttsInfo.hasSummary || isExpanded) &&
+        segments.map((segment, index) => {
+          if (segment.kind === "think") {
+            return (
+              <ModelThinkingCard
+                key={`think-${index}`}
+                content={segment.content}
+                closed={segment.closed}
+              />
+            );
+          }
+          const repairedContent = isStreaming
+            ? repairMalformedStrongEmphasis(segment.content)
+            : repairChineseEmphasis(
+                repairMalformedStrongEmphasis(segment.content),
+                language,
+              );
+
+          if (!hasVisibleMarkdownContent(repairedContent)) {
+            return <Fragment key={`text-${index}`} />;
+          }
+
           return (
-            <ModelThinkingCard
-              key={`think-${index}`}
-              content={segment.content}
-              closed={segment.closed}
+            <MarkdownRenderer
+              key={`text-${index}`}
+              content={repairedContent}
+              variant="prose"
+              className="text-[var(--foreground)]"
             />
           );
-        }
-        const repairedContent = isStreaming
-          ? repairMalformedStrongEmphasis(segment.content)
-          : repairChineseEmphasis(
-              repairMalformedStrongEmphasis(segment.content),
-              language,
-            );
-
-        if (!hasVisibleMarkdownContent(repairedContent)) {
-          return <Fragment key={`text-${index}`} />;
-        }
-
-        return (
-          <MarkdownRenderer
-            key={`text-${index}`}
-            content={repairedContent}
-            variant="prose"
-            className="text-[var(--foreground)]"
-          />
-        );
-      })}
+        })}
     </div>
   );
+
 }
 
 // Memoize so completed messages don't re-parse markdown when an

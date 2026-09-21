@@ -363,6 +363,14 @@ TTS_PROVIDERS: dict[str, VoiceProviderSpec] = {
         default_model="",
         default_voice="",
     ),
+    "vieneu_local": VoiceProviderSpec(
+        label="VieNEU Local",
+        default_api_base="",
+        adapter="vieneu_local",
+        default_model="VieNeu-TTS-v3-Turbo",
+        default_voice="Phạm Tuyên",
+        is_local=True,
+    ),
 }
 
 STT_PROVIDERS: dict[str, VoiceProviderSpec] = {
@@ -420,6 +428,7 @@ VOICE_PROVIDER_ALIASES = {
     "aoai": "azure_openai",
     "openai_compatible": "custom",
     "lmstudio": "vllm",
+    "vieneu": "vieneu_local",
 }
 
 

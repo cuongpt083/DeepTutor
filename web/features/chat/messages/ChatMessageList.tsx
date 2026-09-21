@@ -43,6 +43,8 @@ import { apiFetch, apiUrl } from "@/lib/api";
 import { docIconFor } from "@/lib/doc-attachments";
 import { useVoiceAutoplay } from "@/hooks/useVoiceAutoplay";
 import { extractMathAnimatorResult } from "@/lib/math-animator-types";
+import { extractTtsSummary } from "@/lib/tts-summary";
+
 import {
   extractQuizQuestions,
   extractQuizTurnId,
@@ -972,11 +974,14 @@ export function PlayAudioButton({
   const play = useCallback(async () => {
     setState("loading");
     try {
+      const tts = extractTtsSummary(content);
+      const textToSpeak = tts.hasSummary ? tts.summary : content;
       const resp = await apiFetch(apiUrl("/api/voice/tts"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: content }),
+        body: JSON.stringify({ text: textToSpeak }),
       });
+
       if (!resp.ok) {
         cleanup();
         setState("idle");

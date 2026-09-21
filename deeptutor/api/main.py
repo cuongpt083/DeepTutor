@@ -524,6 +524,7 @@ from deeptutor.api.routers import (
     video_learning,
     visualizers,
     voice,
+    voice_stream,
     workspace,
 )
 from deeptutor.api.routers import (
@@ -682,6 +683,9 @@ app.include_router(personas.router, prefix="/api", tags=["personas"], dependenci
 app.include_router(tools_router.router, prefix="/api/tools", tags=["tools"], dependencies=_auth)
 app.include_router(system.router, prefix="/api/system", tags=["system"], dependencies=_auth)
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"], dependencies=_auth)
+app.include_router(
+    voice_stream.router, prefix="/api/voice", tags=["voice-stream"], dependencies=_auth
+)
 app.include_router(
     video_learning.router,
     prefix="/api/video-learning",

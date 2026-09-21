@@ -156,11 +156,31 @@ class LoopPromptAssembler:
             blocks.append(PromptBlock("notebooks", notebook_manifest))
         if workspace_note:
             blocks.append(PromptBlock("workspace", workspace_note))
+
+        tts_mode = bool(
+            (context.config_overrides or {}).get("tts_summary")
+            or (context.config_overrides or {}).get("tts_mode")
+            or (context.metadata or {}).get("tts_mode")
+            or (context.metadata or {}).get("tts_summary")
+        )
+        if tts_mode:
+            blocks.append(
+                PromptBlock(
+                    "tts_speech_optimization",
+                    "TTS Response Optimization Active:\n"
+                    "Format your response for spoken speech. At the very beginning of your reply, "
+                    "enclose a 1-3 sentence conversational spoken summary inside <tts_summary>...</tts_summary> tags. "
+                    "This summary MUST be natural, concise, plain conversational prose without Markdown formatting, LaTeX, code blocks, bullet points, or complex punctuation, so it sounds great when read aloud by a text-to-speech engine.\n"
+                    "Immediately following the </tts_summary> tag, provide your full, comprehensive, detailed answer with all markdown formatting, LaTeX formulas, examples, and explanations as normal."
+                )
+            )
+
         # Per-turn attachments/sidebar are tagged volatile (see
         # VOLATILE_BLOCK_NAMES) and rendered after the cache breakpoint.
         # The KB seed rides in the trailing user message so even the volatile
         # suffix stays byte-stable for every loop round of this turn.
         return blocks
+
 
     def foundation_blocks(self, context: UnifiedContext) -> list[PromptBlock]:
         """The blocks that open every system prompt this loop builds.

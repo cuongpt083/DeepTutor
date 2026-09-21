@@ -151,16 +151,26 @@ _WHITESPACE = re.compile(r"[ \t]+")
 _BLANK_LINES = re.compile(r"\n{3,}")
 
 
+_TTS_SUMMARY_TAG = re.compile(r"<tts_summary>(.*?)</tts_summary>", re.DOTALL | re.IGNORECASE)
+
+
 def strip_markdown_for_speech(text: str, *, max_chars: int = 0) -> str:
     """Reduce Markdown to plain prose suitable for TTS.
 
+    If a `<tts_summary>` block is present, uses its contents directly.
     Drops code blocks and tables outright (they read terribly), unwraps links
     and emphasis to their visible text, and removes structural markers. This is
     deliberately lossy — the goal is natural speech, not faithful rendering.
     """
     if not text:
         return ""
+
+    tts_match = _TTS_SUMMARY_TAG.search(text)
+    if tts_match:
+        text = tts_match.group(1).strip()
+
     out = _FENCED_CODE.sub(" ", text)
+
     out = _TABLE_PIPE.sub(" ", out)
     out = _IMAGE.sub(" ", out)
     out = _LINK.sub(r"\1", out)
