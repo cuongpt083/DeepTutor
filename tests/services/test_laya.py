@@ -95,4 +95,9 @@ async def test_pipeline_should_preseed_kb(monkeypatch):
     with patch("deeptutor.services.laya.client.should_preseed_with_laya", new_callable=AsyncMock) as mock_laya:
         mock_laya.return_value = True
         assert await pipe._should_preseed_kb(ctx, ["kb1"], "hello") is True
-        mock_laya.assert_awaited_once_with("hello", ["kb1"])
+        mock_laya.assert_awaited_once_with(
+            "hello",
+            ["kb1"],
+            service_url="http://deeptutor-laya:8000/v1/decide",
+            threshold=0.7,
+        )

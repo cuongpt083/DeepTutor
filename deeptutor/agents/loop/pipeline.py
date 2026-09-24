@@ -1468,20 +1468,68 @@ class AgenticLoopPipeline:
 
     # ---- KB seed ---------------------------------------------------------
 
+    async def _should_preseed_kb(
+        self,
+        context: UnifiedContext,
+        kbs: list[str],
+        query: str,
+        stream: StreamBus | None = None,
+    ) -> bool:
+        try:
+            from deeptutor.services.config.runtime_settings import RuntimeSettingsService
+
+            settings = RuntimeSettingsService.get_instance().load_system()
+            mode = settings.get("kb_preseed_mode") or os.getenv("KB_PRESEED_MODE", "")
+            laya_url = settings.get("laya_service_url")
+            laya_thresh = settings.get("laya_threshold")
+        except Exception:
+            mode = os.getenv("KB_PRESEED_MODE", "")
+            laya_url = None
+            laya_thresh = None
+
+        mode = str(mode or "").strip().lower()
+        if mode in ("auto", "laya"):
+            from deeptutor.services.laya.client import should_preseed_with_laya
+
+            decision = await should_preseed_with_laya(
+                query,
+                kbs,
+                service_url=laya_url,
+                threshold=laya_thresh,
+            )
+            if stream is not None:
+                await stream.progress(
+                    f"Laya Decision: {'Preseeding KB context' if decision else 'Skipping KB preseed'}",
+                    source=self.event_source,
+                    stage=self.event_stage,
+                    metadata={
+                        "trace_role": "laya_router",
+                        "label": "Laya Gating",
+                        "decision": decision,
+                        "query": query,
+                        "kbs": kbs,
+                    },
+                )
+            return decision
+        if mode in ("true", "always", "1", "yes"):
+            return True
+        if mode in ("false", "off", "0", "no"):
+            return False
+        return os.getenv("ENABLE_KB_PRESEED", "false").lower() in ("true", "1", "yes")
+
     async def _retrieve_kb_seed_block(
         self,
         context: UnifiedContext,
         stream: StreamBus,
     ) -> str:
-        enable_preseed = os.getenv("ENABLE_KB_PRESEED", "false").lower() in ("true", "1", "yes")
-        if not enable_preseed:
-            return ""
-
-        # Only traditional RAG KBs are pre-seeded when ENABLE_KB_PRESEED=true.
+        # Only traditional RAG KBs are pre-seeded when preseed is enabled.
         # PageIndex and capability-owned KBs are read with their tools inside the reasoning loop.
         kbs = self._coexisting_rag_kbs(context)
         query = (context.user_message or "").strip()
         if not kbs or not query:
+            return ""
+
+        if not await self._should_preseed_kb(context, kbs, query, stream=stream):
             return ""
         if len(kbs) > KB_SEED_MAX_KBS:
             kbs = kbs[:KB_SEED_MAX_KBS]
