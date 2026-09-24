@@ -49,5 +49,5 @@ services:
 
 networks:
   deeptutor-network:
-    name: ${DEEPTUTOR_NETWORK:-deeptutor-network}
+    name: ${DEEPTUTOR_NETWORK:-study}
     external: true

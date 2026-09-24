@@ -188,6 +188,10 @@ services:
       - PYTHONPATH=/app:/home/deeptutor/.local/lib/python3.11/site-packages
       - DEEPTUTOR_WORKSPACE_ROOT=/workspace
       - DEEPTUTOR_WORKSPACE_ALLOWED_ROOTS=/workspace
+      - ENABLE_KB_PRESEED=${ENABLE_KB_PRESEED:-false}
+      - KB_PRESEED_MODE=${KB_PRESEED_MODE:-off}
+      - LAYA_SERVICE_URL=${LAYA_SERVICE_URL:-http://deeptutor-laya:8000/v1/decide}
+      - LAYA_THRESHOLD=${LAYA_THRESHOLD:-0.70}
       # Local LLM (LM Studio / Ollama / vLLM) base URLs in
       # data/user/settings/model_catalog.json should use
       # `http://host.containers.internal:PORT` (podman) — NOT localhost,
@@ -195,6 +199,8 @@ services:
       # Uncomment to enable PocketBase auth (also set integrations.json):
       #   - POCKETBASE_URL=http://pocketbase:8090
       #   - POCKETBASE_EXTERNAL_URL=http://localhost:8090
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     healthcheck:
