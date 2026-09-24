@@ -71,11 +71,16 @@ async def lifespan(app: FastAPI):
 
     for src in tokenizer_sources:
         try:
-            tokenizer = AutoTokenizer.from_pretrained(src, token=HF_TOKEN)
+            tokenizer = AutoTokenizer.from_pretrained(src, token=HF_TOKEN, trust_remote_code=True)
             logger.info("Loaded tokenizer from %s", src)
             break
-        except Exception as exc:
-            logger.debug("Could not load tokenizer from %s: %s", src, exc)
+        except Exception as exc1:
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(src, token=HF_TOKEN, use_fast=False, trust_remote_code=True)
+                logger.info("Loaded tokenizer (slow fallback) from %s", src)
+                break
+            except Exception as exc2:
+                logger.debug("Could not load tokenizer from %s: fast=%s, slow=%s", src, exc1, exc2)
 
     if tokenizer is None:
         logger.warning(
