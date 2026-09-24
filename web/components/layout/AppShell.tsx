@@ -110,21 +110,17 @@ export default function AppShell({ sidebar, children }: AppShellProps) {
             >
               <Menu size={18} strokeWidth={1.7} />
             </button>
-            <Link href="/" className="flex items-center gap-1.5">
+            <Link href="/" className="flex min-w-0 items-center gap-1.5">
               <Image
                 src="/logo.png"
-                alt="DeepTutor"
+                alt="NextTutor by DeepTutor"
                 width={20}
                 height={20}
-                className="h-5 w-5"
+                className="h-5 w-5 shrink-0"
               />
-              <Image
-                src="/banner.png"
-                alt="DeepTutor"
-                width={897}
-                height={236}
-                className="h-[18px] w-auto"
-              />
+              <span className="truncate text-sm font-semibold tracking-tight text-[var(--foreground)]">
+                NextTutor by DeepTutor
+              </span>
             </Link>
           </div>
 

@@ -188,12 +188,12 @@ export function SidebarShell({
         <div className="relative mb-2 flex h-9 w-9 items-center justify-center">
           <Link
             href="/"
-            aria-label="DeepTutor"
+            aria-label="NextTutor by DeepTutor"
             className="flex items-center justify-center transition-opacity duration-150 group-hover/sb:opacity-0"
           >
             <Image
               src="/logo.png"
-              alt="DeepTutor"
+              alt="NextTutor by DeepTutor"
               width={22}
               height={22}
               className="h-[22px] w-[22px] rounded-md"
@@ -252,22 +252,17 @@ export function SidebarShell({
     >
       {/* Header: logo + collapse toggle */}
       <div className="flex h-[52px] shrink-0 items-center justify-between px-4">
-        <Link href="/" className="group flex items-center gap-1.5">
+        <Link href="/" className="group flex min-w-0 items-center gap-2">
           <Image
             src="/logo.png"
-            alt="DeepTutor"
+            alt="NextTutor by DeepTutor"
             width={22}
             height={22}
-            className="h-[22px] w-[22px] transition-transform duration-200 group-hover:scale-105"
+            className="h-[22px] w-[22px] shrink-0 transition-transform duration-200 group-hover:scale-105"
           />
-          <Image
-            src="/banner.png"
-            alt="DeepTutor"
-            width={897}
-            height={236}
-            priority
-            className="h-[22px] w-auto transition-transform duration-200 group-hover:scale-105"
-          />
+          <span className="truncate text-sm font-semibold tracking-tight text-[var(--foreground)] transition-opacity duration-200 group-hover:opacity-90">
+            NextTutor by DeepTutor
+          </span>
         </Link>
         {/* The rail is a desktop affordance; in the drawer the scrim and the
             top-bar toggle already own "make this go away". */}
