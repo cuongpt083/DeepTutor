@@ -126,20 +126,23 @@ def mark_openai_messages(
     tools: list[dict[str, Any]] | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
     """Copy *messages* / *tools* with OpenAI-compat ``cache_control`` breakpoints."""
+    budget = 4
     new_messages = list(messages)
-    if new_messages and new_messages[0].get("role") == "system":
+    if new_messages and new_messages[0].get("role") == "system" and budget > 0:
         first = dict(new_messages[0])
         first["content"] = _mark_content(first.get("content"), first_part=True)
         new_messages[0] = first
-    if len(new_messages) >= 3:
+        budget -= 1
+    if len(new_messages) >= 3 and budget > 0:
         near_last = dict(new_messages[-2])
         near_last["content"] = _mark_content(near_last.get("content"), first_part=False)
         new_messages[-2] = near_last
+        budget -= 1
 
     new_tools = tools
-    if tools:
+    if tools and budget > 0:
         new_tools = list(tools)
-        for idx in LLMProvider._tool_cache_marker_indices(new_tools):
+        for idx in LLMProvider._tool_cache_marker_indices(new_tools)[:budget]:
             new_tools[idx] = {**new_tools[idx], "cache_control": dict(_CACHE_MARKER)}
     return new_messages, new_tools
 

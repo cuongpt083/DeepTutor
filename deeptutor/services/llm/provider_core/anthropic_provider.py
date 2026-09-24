@@ -457,6 +457,8 @@ class AnthropicProvider(LLMProvider):
             total_prompt = input_tokens + cache_creation + cache_read
             usage = {
                 "prompt_tokens": total_prompt,
+                "cache_read_input_tokens": cache_read,
+                "cache_creation_input_tokens": cache_creation,
                 "completion_tokens": response.usage.output_tokens,
                 "total_tokens": total_prompt + response.usage.output_tokens,
             }

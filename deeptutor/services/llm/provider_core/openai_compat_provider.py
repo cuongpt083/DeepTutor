@@ -50,7 +50,7 @@ from deeptutor.services.llm.request_compat import (
     is_forced_tool_choice_unsupported,
     is_response_format_unsupported,
 )
-from deeptutor.services.llm.usage_frame import token_counts
+from deeptutor.services.llm.usage_frame import usage_breakdown
 from deeptutor.services.provider_registry import model_overrides_for, normalize_wire_api
 from deeptutor.services.session.provider_response_state import (
     normalize_provider_response_state,
@@ -793,7 +793,7 @@ class OpenAICompatProvider(LLMProvider):
             usage_obj = response_map.get("usage")
         else:
             usage_obj = getattr(response, "usage", None)
-        return token_counts(usage_obj)
+        return usage_breakdown(usage_obj)
 
     def _parse(self, response: Any) -> LLMResponse:
         if isinstance(response, str):

@@ -234,7 +234,14 @@ def _codex_cache_key(kwargs: dict[str, Any]) -> str:
 
 
 def _prompt_cache_key(messages: list[dict[str, Any]]) -> str:
-    raw = json.dumps(messages, ensure_ascii=True, sort_keys=True)
+    # Routing affinity must survive ordinary history growth. The system prefix
+    # identifies reusable instructions; the provider still verifies all tokens.
+    prefix = []
+    for message in messages:
+        if message.get("role") != "system":
+            break
+        prefix.append({"role": "system", "content": message.get("content")})
+    raw = json.dumps(prefix, ensure_ascii=True, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { browserStorage } from "@/shared/storage";
+import { activeWorkspaceId } from "@/lib/workspace-scope";
 
 export type AppLanguage = "en" | "zh";
 export type ResponseLanguage = "auto" | "vi" | "en" | "zh";
@@ -176,7 +177,7 @@ export function writeStoredResponseLanguage(language: ResponseLanguage): void {
 export function readStoredActiveSessionId(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return browserStorage.readRaw("session", ACTIVE_SESSION_STORAGE_KEY);
+    return browserStorage.readRaw("session", `${ACTIVE_SESSION_STORAGE_KEY}:${activeWorkspaceId()}`);
   } catch {
     return null;
   }
@@ -186,9 +187,9 @@ export function writeStoredActiveSessionId(sessionId: string | null): void {
   if (typeof window === "undefined") return;
   try {
     if (sessionId) {
-      browserStorage.writeRaw("session", ACTIVE_SESSION_STORAGE_KEY, sessionId);
+      browserStorage.writeRaw("session", `${ACTIVE_SESSION_STORAGE_KEY}:${activeWorkspaceId()}`, sessionId);
     } else {
-      browserStorage.removeRaw("session", ACTIVE_SESSION_STORAGE_KEY);
+      browserStorage.removeRaw("session", `${ACTIVE_SESSION_STORAGE_KEY}:${activeWorkspaceId()}`);
     }
     window.dispatchEvent(
       new CustomEvent(ACTIVE_SESSION_EVENT, {

@@ -94,22 +94,21 @@ test("onboarding client sends the partner-scoped lifecycle requests", async () =
 
     assert.deepEqual(stub.calls[0], {
       method: "POST",
-      url: "/api/partners/partner%20id/channel-onboarding/start",
+      url: "/api/partners/partner%20id/channel-onboarding/start?dt_workspace=",
       body: { channel: "feishu" },
     });
     assert.deepEqual(stub.calls[1], {
       method: "POST",
-      url: "/api/partners/partner%20id/channel-onboarding/start",
+      url: "/api/partners/partner%20id/channel-onboarding/start?dt_workspace=",
       body: { channel: "zalo" },
     });
     assert.equal(
       stub.calls[2].url,
-      "/api/partners/partner%20id/channel-onboarding/session%20id",
+      "/api/partners/partner%20id/channel-onboarding/session%20id?dt_workspace=",
     );
     assert.equal(stub.calls[3].method, "DELETE");
     assert.equal(stub.calls[4].method, "POST");
-    assert.match(stub.calls[4].url, /\/apply$/);
-
+    assert.match(stub.calls[4].url, /\/apply\?dt_workspace=$/);
   } finally {
     stub.restore();
   }
@@ -122,7 +121,7 @@ test("channel runtime client reads the partner-scoped status endpoint", async ()
     assert.deepEqual(stub.calls, [
       {
         method: "GET",
-        url: "/api/partners/partner%20id/channels/status",
+        url: "/api/partners/partner%20id/channels/status?dt_workspace=",
         body: undefined,
       },
     ]);
