@@ -33,6 +33,7 @@ _PROMPT_CACHE_KEY_BINDINGS: frozenset[str] = frozenset(
         "openai_codex",
         "github_copilot",
         "azure_openai",
+        "custom",
     }
 )
 
@@ -133,7 +134,12 @@ def mark_openai_messages(
         first["content"] = _mark_content(first.get("content"), first_part=True)
         new_messages[0] = first
         budget -= 1
-    if len(new_messages) >= 3 and budget > 0:
+    if new_messages and new_messages[-1].get("role") == "tool" and budget > 0:
+        last = dict(new_messages[-1])
+        last["content"] = _mark_content(last.get("content"), first_part=False)
+        new_messages[-1] = last
+        budget -= 1
+    elif len(new_messages) >= 3 and budget > 0:
         near_last = dict(new_messages[-2])
         near_last["content"] = _mark_content(near_last.get("content"), first_part=False)
         new_messages[-2] = near_last
@@ -144,6 +150,7 @@ def mark_openai_messages(
         new_tools = list(tools)
         for idx in LLMProvider._tool_cache_marker_indices(new_tools)[:budget]:
             new_tools[idx] = {**new_tools[idx], "cache_control": dict(_CACHE_MARKER)}
+            budget -= 1
     return new_messages, new_tools
 
 

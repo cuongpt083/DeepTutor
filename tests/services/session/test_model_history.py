@@ -204,3 +204,13 @@ async def test_branch_replay_and_public_export_are_isolated(tmp_path):
     )
     tool_results = [m["content"] for m in built.model_history if m["role"] == "tool"]
     assert tool_results == ["A only"]
+
+
+def test_normalize_model_turn_accepts_system_as_list():
+    record = turn_record()
+    record["system"] = [{"type": "text", "text": "Stable prefix"}, {"type": "text", "text": "Volatile part"}]
+    normalized = normalize_model_turn(record)
+    assert normalized is not None
+    assert isinstance(normalized["system"], list)
+    assert len(normalized["system"]) == 2
+

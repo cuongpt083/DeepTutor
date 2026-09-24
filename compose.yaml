@@ -182,6 +182,7 @@ services:
       # Stable content workspace shared by every installation path. Override
       # the host side with DEEPTUTOR_WORKSPACE_HOST=/absolute/folder.
       - ${DEEPTUTOR_WORKSPACE_HOST:-./data/user/workspace}:/workspace:U
+      - ./deeptutor:/app/deeptutor:ro,U
     environment:
       # Time zone — picked up by Python (time.tzset) and Next.js at boot.
       - TZ=${TZ:-GMT+7}

@@ -79,9 +79,10 @@ def test_loop_messages_put_sources_after_stable_prefix() -> None:
     messages = pipeline._build_loop_messages(context=context, enabled_tools=[])
     system = messages[0]["content"]
     assert isinstance(system, list)
-    assert "prefers short answers" in system[0]["text"]
+    assert "You are DeepTutor" in system[0]["text"]
     assert "homework.pdf" not in system[0]["text"]
     assert "homework.pdf" in system[1]["text"]
+    assert any("prefers short answers" in str(m.get("content")) for m in messages)
 
 
 def test_workspace_key_prefers_session_over_turn() -> None:

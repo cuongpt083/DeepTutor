@@ -576,7 +576,7 @@ class ContextBuilder:
         if (
             previous_model_turn
             and older_unsummarized
-            and isinstance(previous_model_turn.get("system"), str)
+            and isinstance(previous_model_turn.get("system"), (str, list))
         ):
             # The current retained prefix is authoritative once model turns
             # exist; legacy sessions keep their raw-transcript rebuild path.

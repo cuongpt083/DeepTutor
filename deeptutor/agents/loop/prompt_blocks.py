@@ -34,7 +34,6 @@ RUNTIME_BLOCK_NAMES = frozenset(
         "runtime_context",
         "memory",
         "learner_profile",
-        "sources",
         "notebooks",
         "workspace",
         "tools",

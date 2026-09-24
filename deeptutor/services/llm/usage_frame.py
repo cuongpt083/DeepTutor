@@ -145,6 +145,7 @@ def usage_breakdown(
     cached = None
     for key in (
         "cache_read_input_tokens",
+        "cache_read_tokens",
         "cached_tokens",
         "prompt_cache_hit_tokens",
         "cached_content_token_count",
@@ -158,16 +159,43 @@ def usage_breakdown(
             if details.get("cached_tokens") is not None:
                 cached = details["cached_tokens"]
                 break
-    creation = frame.get("cache_creation_input_tokens")
+    creation = (
+        frame.get("cache_creation_input_tokens")
+        if frame.get("cache_creation_input_tokens") is not None
+        else frame.get("cache_creation_tokens")
+        if frame.get("cache_creation_tokens") is not None
+        else frame.get("prompt_cache_miss_tokens")
+    )
+    if creation is None:
+        for key in ("prompt_tokens_details", "input_tokens_details"):
+            details = usage_mapping(
+                frame.get(key), keys=("cache_creation_tokens", "cache_creation_input_tokens")
+            )
+            for ck in ("cache_creation_tokens", "cache_creation_input_tokens"):
+                if details.get(ck) is not None:
+                    creation = details[ck]
+                    break
+            if creation is not None:
+                break
     # Native Anthropic input_tokens excludes cache reads AND cache writes.
     # Canonical/OpenAI prompt_tokens already includes those tokens.
-    if prompt == "input_tokens" and ("cache_read_input_tokens" in frame or creation is not None):
+    if prompt == "input_tokens" and (
+        "cache_read_input_tokens" in frame
+        or "cache_read_tokens" in frame
+        or creation is not None
+    ):
         counts["prompt_tokens"] += _as_int(cached) + _as_int(creation)
         counts["total_tokens"] = counts["prompt_tokens"] + counts["completion_tokens"]
+    elif cached is not None and _as_int(cached) > counts["prompt_tokens"]:
+        counts["prompt_tokens"] += _as_int(cached)
+        counts["total_tokens"] = counts["prompt_tokens"] + counts["completion_tokens"]
+
     if cached is not None:
         counts["cache_read_input_tokens"] = min(_as_int(cached), counts["prompt_tokens"])
     if creation is not None:
         counts["cache_creation_input_tokens"] = min(_as_int(creation), counts["prompt_tokens"])
+    counts.pop("cache_read_tokens", None)
+    counts.pop("cache_creation_tokens", None)
     reasoning = frame.get("reasoning_tokens")
     if reasoning is None:
         for key in ("completion_tokens_details", "output_tokens_details"):

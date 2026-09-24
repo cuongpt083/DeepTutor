@@ -1053,14 +1053,6 @@ class AgentLoop:
         session_id = str(self.context.session_id or "").strip()
         if threads_session_id(self.pipeline.binding) and session_id:
             kwargs["deeptutor_session_id"] = session_id
-        apply_to_completion_kwargs(
-            kwargs,
-            model=self.pipeline.model,
-            binding=self.pipeline.binding,
-            session_id=session_id,
-        )
-        if self.pipeline.usage is not None:
-            kwargs["stream_options"] = {"include_usage": True}
         if tool_schemas:
             kwargs["tools"] = tool_schemas
             available_tools = {
@@ -1076,6 +1068,14 @@ class AgentLoop:
                 if tool_choice and tool_choice in available_tools
                 else "auto"
             )
+        apply_to_completion_kwargs(
+            kwargs,
+            model=self.pipeline.model,
+            binding=self.pipeline.binding,
+            session_id=session_id,
+        )
+        if self.pipeline.usage is not None:
+            kwargs["stream_options"] = {"include_usage": True}
         forced_tool_choice = isinstance(kwargs.get("tool_choice"), dict)
         self._request_tools = tool_schemas
         from deeptutor.services.llm.request_cache import compare_requests, fingerprint_request

@@ -36,7 +36,7 @@ def normalize_model_turn(value: Any) -> dict[str, Any] | None:
     """
     if not isinstance(value, dict) or value.get("version") != MODEL_TURN_VERSION:
         return None
-    if "system" in value and not isinstance(value["system"], str):
+    if "system" in value and not isinstance(value["system"], (str, list)):
         return None
     tools = value.get("tools")
     if tools is not None:

@@ -109,3 +109,24 @@ def test_claude_cache_read_is_cheaper_than_full_input() -> None:
     read, write = cache_price_multipliers("claude-sonnet-4")
     assert read == 0.1
     assert write == 1.25
+
+
+def test_turn_usage_summary_includes_cache_write_reported_calls() -> None:
+    from deeptutor.services.llm.metrics import TurnUsage
+
+    usage = TurnUsage()
+    usage.calls.append(
+        {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "cache_read_input_tokens": 80,
+            "cache_creation_input_tokens": 20,
+            "estimated": False,
+        }
+    )
+    summary = usage.summary()
+    assert summary is not None
+    assert summary["cache_reported_calls"] == 1
+    assert summary["cache_write_reported_calls"] == 1
+

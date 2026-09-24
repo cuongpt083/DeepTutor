@@ -39,6 +39,7 @@ class TurnUsage:
             )
         }
         cache_calls = [c for c in calls if c.get("cache_read_input_tokens") is not None]
+        cache_write_calls = [c for c in calls if c.get("cache_creation_input_tokens") is not None]
         cache_input = sum(c["prompt_tokens"] for c in cache_calls)
         timed = [c for c in calls if c.get("ttft_seconds") is not None]
         generated = [c for c in calls if c.get("generation_seconds") and not c["estimated"]]
@@ -47,6 +48,7 @@ class TurnUsage:
             **totals,
             "total_calls": len(calls),
             "cache_reported_calls": len(cache_calls),
+            "cache_write_reported_calls": len(cache_write_calls),
             "cache_input_tokens": cache_input,
             "cache_hit_rate": (
                 totals["cache_read_input_tokens"] / cache_input if cache_input else None
