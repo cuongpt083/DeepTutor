@@ -71,6 +71,29 @@ if PROMETHEUS_AVAILABLE:
         ["direction", "mode"],
         buckets=[128, 512, 1024, 4096, 16384, 65536, 262144, 1048576],
     )
+
+    # Laya router request duration
+    LAYA_REQUEST_DURATION = Histogram(
+        "deeptutor_laya_request_duration_seconds",
+        "Total HTTP round-trip time for Laya decision requests in seconds",
+        ["status", "decision"],
+        buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0],
+    )
+
+    # Laya server-reported latency
+    LAYA_SERVER_REPORTED_DURATION = Histogram(
+        "deeptutor_laya_server_reported_duration_seconds",
+        "Processing time reported by Laya service in seconds",
+        ["decision"],
+        buckets=[0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5],
+    )
+
+    # Laya request counter
+    LAYA_REQUESTS_TOTAL = Counter(
+        "deeptutor_laya_requests_total",
+        "Total number of calls made to Laya service",
+        ["status", "decision"],
+    )
 else:
     TURN_DURATION = None
     TOOL_DURATION = None
@@ -79,6 +102,37 @@ else:
     LIGHTRAG_SERVER_REPORTED_DURATION = None
     LIGHTRAG_NETWORK_LATENCY = None
     LIGHTRAG_PAYLOAD_BYTES = None
+    LAYA_REQUEST_DURATION = None
+    LAYA_SERVER_REPORTED_DURATION = None
+    LAYA_REQUESTS_TOTAL = None
+
+
+def record_laya_request(status: str, decision: str, duration: float) -> None:
+    if not PROMETHEUS_AVAILABLE or LAYA_REQUEST_DURATION is None:
+        return
+    try:
+        LAYA_REQUEST_DURATION.labels(
+            status=str(status or "unknown"),
+            decision=str(decision or "unknown"),
+        ).observe(max(0.0, float(duration)))
+        if LAYA_REQUESTS_TOTAL is not None:
+            LAYA_REQUESTS_TOTAL.labels(
+                status=str(status or "unknown"),
+                decision=str(decision or "unknown"),
+            ).inc()
+    except Exception as exc:
+        logger.debug(f"Failed to record laya request metric: {exc}")
+
+
+def record_laya_server_reported(decision: str, duration: float) -> None:
+    if not PROMETHEUS_AVAILABLE or LAYA_SERVER_REPORTED_DURATION is None:
+        return
+    try:
+        LAYA_SERVER_REPORTED_DURATION.labels(
+            decision=str(decision or "unknown"),
+        ).observe(max(0.0, float(duration)))
+    except Exception as exc:
+        logger.debug(f"Failed to record laya server reported metric: {exc}")
 
 
 def record_remote_request(endpoint: str, mode: str, status_code: str, duration: float) -> None:

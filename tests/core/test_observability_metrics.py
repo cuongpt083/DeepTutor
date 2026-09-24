@@ -7,6 +7,8 @@ from deeptutor.core.observability.metrics import (
     record_rag_search,
     record_turn_duration,
     record_tool_duration,
+    record_laya_request,
+    record_laya_server_reported,
     LIGHTRAG_REMOTE_REQUEST_DURATION,
     LIGHTRAG_SERVER_REPORTED_DURATION,
     LIGHTRAG_NETWORK_LATENCY,
@@ -14,6 +16,9 @@ from deeptutor.core.observability.metrics import (
     RAG_SEARCH_DURATION,
     TURN_DURATION,
     TOOL_DURATION,
+    LAYA_REQUEST_DURATION,
+    LAYA_SERVER_REPORTED_DURATION,
+    LAYA_REQUESTS_TOTAL,
 )
 
 def test_record_remote_request():
@@ -38,6 +43,25 @@ def test_record_payload_bytes():
     assert LIGHTRAG_PAYLOAD_BYTES.labels(direction="request", mode="mix")._sum.get() >= 1024
     assert LIGHTRAG_PAYLOAD_BYTES.labels(direction="response", mode="mix")._sum.get() >= 4096
 
+def test_record_laya_metrics():
+    count_before = LAYA_REQUESTS_TOTAL.labels(status="success", decision="true")._value.get()
+    sum_before = LAYA_REQUEST_DURATION.labels(status="success", decision="true")._sum.get()
+
+    record_laya_request(status="success", decision="true", duration=0.045)
+
+    count_after = LAYA_REQUESTS_TOTAL.labels(status="success", decision="true")._value.get()
+    sum_after = LAYA_REQUEST_DURATION.labels(status="success", decision="true")._sum.get()
+
+    assert count_after == count_before + 1
+    assert sum_after >= sum_before + 0.045
+
+    server_before = LAYA_SERVER_REPORTED_DURATION.labels(decision="true")._sum.get()
+    record_laya_server_reported(decision="true", duration=0.030)
+    server_after = LAYA_SERVER_REPORTED_DURATION.labels(decision="true")._sum.get()
+    assert server_after >= server_before + 0.030
+
 def test_metrics_never_crash_on_invalid_input():
     # Pass bad types; function must catch exceptions and not raise
     record_remote_request(None, None, None, "invalid")  # type: ignore
+    record_laya_request(None, None, "invalid")  # type: ignore
+    record_laya_server_reported(None, "invalid")  # type: ignore

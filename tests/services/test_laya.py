@@ -15,19 +15,36 @@ async def test_should_preseed_with_laya_success():
         "latency_ms": 32.5,
     }
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, \
+         patch("deeptutor.services.laya.client.record_laya_request") as mock_record_req, \
+         patch("deeptutor.services.laya.client.record_laya_server_reported") as mock_record_server:
         mock_post.return_value = mock_resp
         decision = await should_preseed_with_laya("What is calculus?", ["math_kb"])
         assert decision is True
+        mock_record_req.assert_called_once()
+        args, kwargs = mock_record_req.call_args
+        assert kwargs.get("status") == "success"
+        assert kwargs.get("decision") == "true"
+        assert kwargs.get("duration") >= 0.0
+
+        mock_record_server.assert_called_once()
+        s_args, s_kwargs = mock_record_server.call_args
+        assert s_kwargs.get("decision") == "true"
+        assert pytest.approx(s_kwargs.get("duration"), rel=1e-3) == 0.0325
 
 
 @pytest.mark.asyncio
 async def test_should_preseed_with_laya_timeout_fails_soft():
     import httpx
 
-    with patch("httpx.AsyncClient.post", side_effect=httpx.TimeoutException("timed out")):
+    with patch("httpx.AsyncClient.post", side_effect=httpx.TimeoutException("timed out")), \
+         patch("deeptutor.services.laya.client.record_laya_request") as mock_record_req:
         decision = await should_preseed_with_laya("What is calculus?", ["math_kb"])
         assert decision is False
+        mock_record_req.assert_called_once()
+        args, kwargs = mock_record_req.call_args
+        assert kwargs.get("status") == "timeout"
+        assert kwargs.get("decision") == "false"
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,11 @@ from typing import Any
 
 import httpx
 
+from deeptutor.core.observability.metrics import (
+    record_laya_request,
+    record_laya_server_reported,
+)
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_LAYA_URL = "http://deeptutor-laya:8000/v1/decide"
@@ -58,6 +63,7 @@ class LayaClient:
 
         if self.is_circuit_open():
             logger.debug("Laya circuit breaker is open. Bypassing preseed.")
+            record_laya_request(status="circuit_open", decision="false", duration=0.0)
             return False
 
         url = service_url or os.getenv("LAYA_SERVICE_URL", DEFAULT_LAYA_URL)
@@ -69,9 +75,11 @@ class LayaClient:
             "threshold": thresh,
         }
 
+        start_time = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=payload)
+                duration = time.perf_counter() - start_time
                 if resp.status_code == 200:
                     self.record_success()
                     data: dict[str, Any] = resp.json()
@@ -84,15 +92,27 @@ class LayaClient:
                         conf,
                         lat,
                     )
+                    decision_str = "true" if should_preseed else "false"
+                    record_laya_request(status="success", decision=decision_str, duration=duration)
+                    if lat is not None:
+                        record_laya_server_reported(
+                            decision=decision_str,
+                            duration=max(0.0, float(lat) / 1000.0),
+                        )
                     return should_preseed
                 logger.warning("Laya returned non-200 status code: %d %s", resp.status_code, resp.text)
                 self.record_failure()
+                record_laya_request(status=f"http_{resp.status_code}", decision="false", duration=duration)
         except httpx.TimeoutException:
+            duration = time.perf_counter() - start_time
             logger.warning("Laya service timed out after %.2fs. Bypassing preseed.", timeout)
             self.record_failure()
+            record_laya_request(status="timeout", decision="false", duration=duration)
         except Exception as exc:
+            duration = time.perf_counter() - start_time
             logger.warning("Failed to connect to Laya service at %s: %s. Bypassing preseed.", url, exc)
             self.record_failure()
+            record_laya_request(status="error", decision="false", duration=duration)
 
         return False
 
