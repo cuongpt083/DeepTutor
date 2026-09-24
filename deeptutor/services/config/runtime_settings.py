@@ -65,6 +65,10 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
     # earlier images ride along on every later turn — a re-sent payload, so
     # it is a policy like the caps above, not an LLM budget.
     "chat_prior_image_reinject_max": 4,
+    # Dynamic Knowledge Base preseed gating (powered by Laya System 1 decision model)
+    "kb_preseed_mode": "off",
+    "laya_service_url": "http://deeptutor-laya:8000/v1/decide",
+    "laya_threshold": 0.70,
 }
 
 # Clamp bounds for the chat attachment knobs. The MB ceilings are deliberately
@@ -402,6 +406,18 @@ def _coerce_int(value: Any, default: int) -> int:
 
 def _coerce_clamped_int(value: Any, default: int, low: int, high: int) -> int:
     coerced = _coerce_int(value, default)
+    return max(low, min(high, coerced))
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_clamped_float(value: Any, default: float, low: float, high: float) -> float:
+    coerced = _coerce_float(value, default)
     return max(low, min(high, coerced))
 
 
@@ -854,6 +870,12 @@ class RuntimeSettingsService:
             payload["chat_attachment_max_chars_total"] = value
         if value := self._process_env_value("CHAT_PRIOR_IMAGE_REINJECT_MAX"):
             payload["chat_prior_image_reinject_max"] = value
+        if value := self._process_env_value("KB_PRESEED_MODE"):
+            payload["kb_preseed_mode"] = value
+        if value := self._process_env_value("LAYA_SERVICE_URL"):
+            payload["laya_service_url"] = value
+        if value := self._process_env_value("LAYA_THRESHOLD"):
+            payload["laya_threshold"] = value
         return self._normalize_system(payload)
 
     def _apply_auth_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -1263,6 +1285,21 @@ class RuntimeSettingsService:
                 settings.get("chat_attachment_max_chars_total"),
                 DEFAULT_SYSTEM_SETTINGS["chat_attachment_max_chars_total"],
                 *CHAT_ATTACHMENT_CHARS_RANGE,
+            ),
+            "kb_preseed_mode": (
+                _string(settings.get("kb_preseed_mode")).lower()
+                if _string(settings.get("kb_preseed_mode")).lower() in ("off", "always", "auto", "laya")
+                else DEFAULT_SYSTEM_SETTINGS["kb_preseed_mode"]
+            ),
+            "laya_service_url": (
+                _string(settings.get("laya_service_url"))
+                or DEFAULT_SYSTEM_SETTINGS["laya_service_url"]
+            ),
+            "laya_threshold": _coerce_clamped_float(
+                settings.get("laya_threshold"),
+                DEFAULT_SYSTEM_SETTINGS["laya_threshold"],
+                0.0,
+                1.0,
             ),
         }
 
