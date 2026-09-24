@@ -9,7 +9,7 @@ import sys
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export Laya to ONNX format")
-    parser.add_argument("--model-id", default="convai/laya-modernbert-en", help="Hugging Face Model ID or local path")
+    parser.add_argument("--model-id", default="convaiinnovations/laya", help="Hugging Face Model ID or local path")
     parser.add_argument("--output-dir", default="data/models/laya", help="Directory to save ONNX weights")
     parser.add_argument("--quantize-int8", action="store_true", help="Quantize exported model to INT8")
     return parser.parse_args(args)

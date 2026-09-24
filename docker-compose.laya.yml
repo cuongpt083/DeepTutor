@@ -26,10 +26,11 @@ services:
       # Expose on host loopback for local debugging/testing
       - "127.0.0.1:${HOST_PORT_LAYA:-8002}:8000"
     environment:
-      - LAYA_MODEL_NAME_OR_PATH=${LAYA_MODEL_NAME_OR_PATH:-convai/laya-modernbert-en}
+      - LAYA_MODEL_NAME_OR_PATH=${LAYA_MODEL_NAME_OR_PATH:-convaiinnovations/laya}
       - LAYA_ONNX_FILE=${LAYA_ONNX_FILE:-model.onnx}
       - ONNX_NUM_THREADS=${LAYA_NUM_THREADS:-2}
       - DEFAULT_THRESHOLD=${LAYA_THRESHOLD:-0.70}
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       # Cache downloaded tokenizer and HuggingFace weights
       - ./data/laya_cache:/root/.cache/huggingface

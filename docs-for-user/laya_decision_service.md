@@ -83,7 +83,7 @@ curl http://127.0.0.1:8002/health
 
 Output:
 ```json
-{"status": "ok", "model": "convai/laya-modernbert-en", "onnx_ready": true}
+{"status": "ok", "model": "convaiinnovations/laya", "onnx_ready": true}
 ```
 
 ### 3. Test Decision Endpoint
@@ -101,7 +101,7 @@ Output:
   "confidence": 0.01,
   "decision_primitive": "boolean",
   "latency_ms": 1.2,
-  "model": "convai/laya-modernbert-en"
+  "model": "convaiinnovations/laya"
 }
 ```
 
@@ -113,7 +113,7 @@ To export and quantize model weights for minimal CPU footprint (~400MB RAM, <35m
 
 ```bash
 python -m deeptutor.services.laya.export_onnx \
-  --model-id convai/laya-modernbert-en \
+  --model-id convaiinnovations/laya \
   --output-dir data/models/laya \
   --quantize-int8
 ```

@@ -13,9 +13,10 @@ from transformers import AutoTokenizer
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("laya-service")
 
-MODEL_NAME = os.getenv("LAYA_MODEL_NAME_OR_PATH", "convai/laya-modernbert-en")
+MODEL_NAME = os.getenv("LAYA_MODEL_NAME_OR_PATH", "convaiinnovations/laya")
 ONNX_MODEL_FILE = os.getenv("LAYA_ONNX_FILE", "model.onnx")
 NUM_THREADS = int(os.getenv("ONNX_NUM_THREADS", "2"))
+HF_TOKEN = os.getenv("HF_TOKEN") or None
 
 tokenizer = None
 ort_session = None
@@ -29,30 +30,58 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 async def lifespan(app: FastAPI):
     global tokenizer, ort_session
     logger.info("Initializing Laya ONNX inference service...")
-    try:
-        # Load tokenizer from HuggingFace / local path
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        logger.info("Loaded tokenizer for %s", MODEL_NAME)
 
-        # Setup ONNX Runtime session options
-        sess_options = ort.SessionOptions()
-        sess_options.intra_op_num_threads = NUM_THREADS
-        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    # 1. Setup ONNX Runtime session options
+    sess_options = ort.SessionOptions()
+    sess_options.intra_op_num_threads = NUM_THREADS
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
-        # Check for local onnx file or load via optimum/download
-        model_path = os.path.join(MODEL_NAME, ONNX_MODEL_FILE) if os.path.isdir(MODEL_NAME) else ONNX_MODEL_FILE
-        if os.path.exists(model_path):
+    # 2. Check for candidate local ONNX model paths
+    candidate_paths = [
+        os.path.join("/app/models", ONNX_MODEL_FILE),
+        os.path.join(MODEL_NAME, ONNX_MODEL_FILE) if os.path.isdir(MODEL_NAME) else "",
+        ONNX_MODEL_FILE,
+        "/app/model.onnx",
+    ]
+    model_path = next((p for p in candidate_paths if p and os.path.exists(p)), None)
+
+    if model_path:
+        try:
             ort_session = ort.InferenceSession(model_path, sess_options, providers=["CPUExecutionProvider"])
-            logger.info("Loaded ONNX session from %s", model_path)
-        else:
-            logger.warning(
-                "ONNX model file %s not found on disk. Initializing in standby/stub mode. "
-                "Mount or export ONNX weights to activate full local model.",
-                model_path,
-            )
+            logger.info("Successfully loaded ONNX session from %s", model_path)
+        except Exception as exc:
+            logger.error("Failed to load ONNX model from %s: %s", model_path, exc)
             ort_session = None
-    except Exception as exc:
-        logger.error("Failed to load Laya model: %s", exc, exc_info=True)
+    else:
+        logger.warning(
+            "ONNX model file not found in /app/models/%s. Running in standby heuristic mode. "
+            "To activate full neural inference, export weights using 'python -m deeptutor.services.laya.export_onnx' "
+            "and mount to ./data/models/laya.",
+            ONNX_MODEL_FILE,
+        )
+        ort_session = None
+
+    # 3. Load tokenizer (local dir or Hugging Face)
+    tokenizer_sources = []
+    if os.path.isdir("/app/models") and os.path.exists("/app/models/tokenizer_config.json"):
+        tokenizer_sources.append("/app/models")
+    tokenizer_sources.append(MODEL_NAME)
+    # ModernBERT fallback tokenizer if the model repo is not yet mirrored
+    tokenizer_sources.append("answerdotai/ModernBERT-base")
+
+    for src in tokenizer_sources:
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(src, token=HF_TOKEN)
+            logger.info("Loaded tokenizer from %s", src)
+            break
+        except Exception as exc:
+            logger.debug("Could not load tokenizer from %s: %s", src, exc)
+
+    if tokenizer is None:
+        logger.warning(
+            "Could not load tokenizer from HuggingFace (offline or requires auth). "
+            "Standby heuristic mode is active."
+        )
 
     yield
     logger.info("Shutting down Laya service...")
@@ -81,6 +110,7 @@ async def health_check():
         "status": "ok",
         "model": MODEL_NAME,
         "onnx_ready": ort_session is not None,
+        "tokenizer_ready": tokenizer is not None,
     }
 
 
@@ -104,6 +134,7 @@ async def decide(req: DecideRequest):
     casual_patterns = {
         "hi", "hello", "hey", "chào", "chào bạn", "cảm ơn", "thanks", "thank you",
         "bye", "tạm biệt", "ok", "okay", "good morning", "good evening",
+        "how are you", "who are you", "bạn là ai",
     }
     if normalized_msg in casual_patterns:
         elapsed = (time.perf_counter() - start_time) * 1000
@@ -115,7 +146,7 @@ async def decide(req: DecideRequest):
             model=MODEL_NAME,
         )
 
-    # If ONNX session is ready, perform model inference
+    # If ONNX session and tokenizer are ready, perform model inference
     if ort_session is not None and tokenizer is not None:
         try:
             kbs_str = ", ".join(req.knowledge_bases)
@@ -137,7 +168,6 @@ async def decide(req: DecideRequest):
             }
             outputs = ort_session.run(None, ort_inputs)
             logits = outputs[0]
-            # Assuming binary classification head: index 1 is probability of True
             probs = sigmoid(logits)
             prob_true = float(probs[0][1]) if probs.shape[-1] > 1 else float(probs[0][0])
             should_preseed = prob_true >= req.threshold
@@ -154,12 +184,18 @@ async def decide(req: DecideRequest):
             logger.error("Inference error: %s", exc)
             raise HTTPException(status_code=500, detail=str(exc))
 
-    # Standby fallback: if model is not yet loaded, return safe default
+    # Standby fallback heuristic mode:
+    # If the message contains domain indicators (e.g. mentions KB, document, tài liệu, sách, file, theo...), preseed.
+    domain_keywords = {
+        "tài liệu", "sách", "giáo trình", "document", "file", "kb", "knowledge base",
+        "theo", "theo như", "trang", "chương", "bài giảng", "định lý", "pdf",
+    }
+    has_domain_hint = any(kw in normalized_msg for kw in domain_keywords)
     elapsed = (time.perf_counter() - start_time) * 1000
     return DecideResponse(
-        should_preseed=False,
-        confidence=0.5,
+        should_preseed=has_domain_hint,
+        confidence=0.75 if has_domain_hint else 0.30,
         decision_primitive="boolean",
         latency_ms=round(elapsed, 2),
-        model=f"{MODEL_NAME} (standby)",
+        model=f"{MODEL_NAME} (standby-heuristic)",
     )
