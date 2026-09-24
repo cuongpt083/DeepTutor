@@ -1,0 +1,52 @@
+# ============================================
+# Laya Decision Service — Docker Compose
+# ============================================
+# Standalone service providing low-latency System 1 decision API
+# for DeepTutor (e.g., dynamic Knowledge Base preseed gating).
+#
+# Usage:
+#   docker compose -f docker-compose.laya.yml up -d
+#   docker compose -f docker-compose.laya.yml logs -f
+#
+# If running with Podman / study network:
+#   DEEPTUTOR_NETWORK=study podman compose -f docker-compose.laya.yml up -d
+# ============================================
+
+name: deeptutor-laya
+
+services:
+  laya:
+    build:
+      context: ./services/laya
+      dockerfile: Dockerfile
+    image: deeptutor-laya:latest
+    container_name: deeptutor-laya
+    restart: unless-stopped
+    ports:
+      # Expose on host loopback for local debugging/testing
+      - "127.0.0.1:${HOST_PORT_LAYA:-8002}:8000"
+    environment:
+      - LAYA_MODEL_NAME_OR_PATH=${LAYA_MODEL_NAME_OR_PATH:-convai/laya-modernbert-en}
+      - LAYA_ONNX_FILE=${LAYA_ONNX_FILE:-model.onnx}
+      - ONNX_NUM_THREADS=${LAYA_NUM_THREADS:-2}
+      - DEFAULT_THRESHOLD=${LAYA_THRESHOLD:-0.70}
+    volumes:
+      # Cache downloaded tokenizer and HuggingFace weights
+      - ./data/laya_cache:/root/.cache/huggingface
+      # Optional bind-mount for locally exported ONNX models
+      - ./data/models/laya:/app/models
+    networks:
+      - deeptutor-network
+    mem_limit: 2g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  deeptutor-network:
+    name: ${DEEPTUTOR_NETWORK:-deeptutor-network}
+    external: true
