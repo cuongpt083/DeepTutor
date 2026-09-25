@@ -107,7 +107,10 @@ async def test_call_crm_tool_friendly_error_on_mcp_failure(handler, monkeypatch)
         content="/customers",
     )
 
-    ok, res = await handler._call_crm_tool(msg, "customer_list")
+    from deeptutor_crm_plugin.commands import NutriTechCRMHandler
+
+    crm_handler = NutriTechCRMHandler()
+    ok, res = await crm_handler._call_crm_tool(msg, "customer_list")
     assert ok is False
     assert "ClosedResourceError" not in res
     assert "Không thể kết nối tới máy chủ CRM" in res

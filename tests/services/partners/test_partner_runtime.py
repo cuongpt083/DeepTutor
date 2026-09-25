@@ -1525,3 +1525,68 @@ class TestPartnerCommands:
         res_conv_scr = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="kịch bản chăm sóc Lan ngay_3"))
         assert res_conv_scr is not None and "Nguyễn Thị Lan" in res_conv_scr.content
 
+    @pytest.mark.asyncio
+    async def test_partner_command_extension_discovery(self, partners_root, monkeypatch):
+        import inspect
+        from dataclasses import dataclass
+        from deeptutor.services.partners.commands import (
+            PartnerCommandHandler,
+            PartnerCommandResult,
+            partner_command_palette,
+            build_partner_help_text,
+        )
+
+        @dataclass(frozen=True)
+        class DummySpec:
+            command: str = "/dummy"
+            description: str = "A dummy command"
+            arg_hint: str = ""
+
+        class DummyPlugin:
+            def get_commands(self):
+                return [DummySpec()]
+
+            def handle_command(self, command, args, msg, context=None):
+                if command == "/dummy":
+                    return PartnerCommandResult("dummy executed!")
+                return None
+
+            def handle_conversational(self, msg, context=None):
+                if "hello dummy" in msg.content:
+                    return PartnerCommandResult("dummy conversational!")
+                return None
+
+        monkeypatch.setattr(
+            "deeptutor.services.partners.commands.load_partner_command_extensions",
+            lambda: [DummyPlugin()],
+        )
+
+        runner = _runner(partners_root)
+        handler = PartnerCommandHandler(
+            partner_id="ada", config=runner.config, store=_shared_store()
+        )
+
+        palette = partner_command_palette()
+        assert any(c["command"] == "/dummy" for c in palette)
+        help_text = build_partner_help_text()
+        assert "/dummy" in help_text
+
+        # Slash command dispatch
+        res = handler.dispatch(_msg("/dummy"))
+        if inspect.isawaitable(res):
+            res = await res
+        assert res is not None and res.content == "dummy executed!"
+
+        # Conversational dispatch
+        res_conv = handler.dispatch(_msg("hello dummy"))
+        if inspect.isawaitable(res_conv):
+            res_conv = await res_conv
+        assert res_conv is not None and res_conv.content == "dummy conversational!"
+
+        # Normal message returns None
+        res_norm = handler.dispatch(_msg("normal message"))
+        if inspect.isawaitable(res_norm):
+            res_norm = await res_norm
+        assert res_norm is None
+
+
