@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import shlex
 from typing import Any, Callable
 
 from deeptutor.agents._shared.tool_composition import default_optional_tools
 from deeptutor.partners.bus.events import InboundMessage
 from deeptutor.services.partners.sessions import PartnerSessionStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -184,6 +187,29 @@ class PartnerCommandHandler:
             return self._script(msg, args)
         return PartnerCommandResult(f"Unknown command: {parts[0]}\n\n{build_partner_help_text()}")
 
+    def _resolve_crm_target(self, mgr: Any, tool_name: str) -> tuple[str, str] | None:
+        """Find the MCP connection owner and server name for a CRM tool."""
+        # 1. Search in active adapters
+        for (owner, name), conn in mgr._connections.items():
+            for adapter in conn.adapters:
+                if getattr(adapter, "_original_name", "") == tool_name:
+                    return (conn.owner, conn.name)
+        # 2. Fallback: check connections by name containing 'crm'
+        for (owner, name), conn in mgr._connections.items():
+            if "crm" in name.lower():
+                return (owner, name)
+        # 3. Fallback: check configured servers
+        try:
+            from deeptutor.services.mcp.config import load_mcp_config
+
+            cfg = load_mcp_config()
+            for name in cfg.servers:
+                if "crm" in name.lower():
+                    return ("shared", name)
+        except Exception:
+            pass
+        return None
+
     async def _pair(self, msg: InboundMessage, args: list[str]) -> PartnerCommandResult:
         """Pair this chat account with NutriTech CRM using a pairing code."""
         if (msg.metadata or {}).get("is_group"):
@@ -203,15 +229,7 @@ class PartnerCommandHandler:
             mgr = get_mcp_manager()
             await mgr.ensure_started()
 
-            target_conn = None
-            for key, conn in mgr._connections.items():
-                for adapter in conn.adapters:
-                    if getattr(adapter, "_original_name", "") == "channel_pair":
-                        target_conn = (conn.owner, conn.name)
-                        break
-                if target_conn:
-                    break
-
+            target_conn = self._resolve_crm_target(mgr, "channel_pair")
             if not target_conn:
                 return PartnerCommandResult(
                     "Không tìm thấy công cụ ghép nối CRM qua MCP. Vui lòng kiểm tra cấu hình MCP."
@@ -228,6 +246,13 @@ class PartnerCommandHandler:
                 },
                 timeout=15,
             )
+            res_str = str(result_str)
+            if res_str.startswith("(MCP "):
+                logger.error("CRM pair tool failed: %s", res_str)
+                return PartnerCommandResult(
+                    "⚠️ Không thể kết nối tới máy chủ CRM. Vui lòng kiểm tra trạng thái máy chủ CRM hoặc thử lại sau ít phút."
+                )
+
             import json
 
             try:
@@ -260,15 +285,7 @@ class PartnerCommandHandler:
             mgr = get_mcp_manager()
             await mgr.ensure_started()
 
-            target_conn = None
-            for key, conn in mgr._connections.items():
-                for adapter in conn.adapters:
-                    if getattr(adapter, "_original_name", "") == tool_name:
-                        target_conn = (conn.owner, conn.name)
-                        break
-                if target_conn:
-                    break
-
+            target_conn = self._resolve_crm_target(mgr, tool_name)
             if not target_conn:
                 return False, f"Không tìm thấy công cụ CRM `{tool_name}` qua MCP. Vui lòng kiểm tra cấu hình MCP."
 
@@ -284,6 +301,9 @@ class PartnerCommandHandler:
                 timeout=15,
             )
             res_str = str(result_str)
+            if res_str.startswith("(MCP "):
+                logger.error("CRM tool %s failed: %s", tool_name, res_str)
+                return False, "⚠️ Không thể kết nối tới máy chủ CRM. Vui lòng thử lại sau giây lát."
             if "write window is closed" in res_str.lower() or "write_window_expired" in res_str.lower():
                 return False, (
                     "🔒 **Cửa sổ ghi dữ liệu CRM (Write Window) đang đóng!**\n\n"

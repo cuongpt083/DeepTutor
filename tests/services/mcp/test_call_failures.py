@@ -300,3 +300,174 @@ def test_a_config_without_references_is_fingerprinted_without_touching_disk(
     monkeypatch.setattr(MCPConnectionManager, "_materialize", staticmethod(_explode))
 
     assert MCPConnectionManager._signature(cfg, OWNER) == cfg.connection_signature()
+
+
+# ── automatic reconnection on transport / stream failure ────────────────
+
+
+@pytest.mark.asyncio
+async def test_call_tool_reconnects_on_closed_resource_error() -> None:
+    """When an in-flight tool call raises ClosedResourceError (e.g. dropped SSE stream),
+    manager must disconnect the dead connection, reconnect, and retry the call once.
+    """
+    import anyio
+    from mcp import types
+    from deeptutor.services.mcp.manager import SHARED_OWNER
+
+    manager = MCPConnectionManager()
+
+    class _DeadSession:
+        async def call_tool(self, tool_name, arguments, progress_callback=None):
+            raise anyio.ClosedResourceError()
+
+    class _WorkingSession:
+        async def call_tool(self, tool_name, arguments, progress_callback=None):
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text="success after reconnect")]
+            )
+
+    conn = _ServerConnection(
+        name=SERVER,
+        config=MCPServerConfig(url="https://maps.example/mcp", tool_timeout=45),
+        signature="sig",
+        owner=OWNER,
+        status="connected",
+        session=_DeadSession(),
+    )
+    conn.task = asyncio.create_task(asyncio.Event().wait())
+    manager._connections[(OWNER, SERVER)] = conn
+
+    reconnected = False
+
+    async def _mock_connect(name, cfg, owner=SHARED_OWNER, retry_delay=30.0):
+        nonlocal reconnected
+        reconnected = True
+        new_conn = _ServerConnection(
+            name=name,
+            config=cfg,
+            signature="sig2",
+            owner=owner,
+            status="connected",
+            session=_WorkingSession(),
+        )
+        new_conn.task = asyncio.create_task(asyncio.Event().wait())
+        manager._connections[(owner, name)] = new_conn
+
+    manager._connect = _mock_connect
+
+    result = await manager.call_tool(OWNER, SERVER, "compute_routes", {}, timeout=5)
+
+    assert reconnected is True
+    assert result == "success after reconnect"
+    if (OWNER, SERVER) in manager._connections and manager._connections[(OWNER, SERVER)].task:
+        manager._connections[(OWNER, SERVER)].task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_connects_on_demand_when_disconnected() -> None:
+    """When a server is in error or disconnected state, call_tool connects it on demand."""
+    from mcp import types
+    from deeptutor.services.mcp.manager import SHARED_OWNER
+
+    manager = MCPConnectionManager()
+
+    class _WorkingSession:
+        async def call_tool(self, tool_name, arguments, progress_callback=None):
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text="on demand success")]
+            )
+
+    conn = _ServerConnection(
+        name=SERVER,
+        config=MCPServerConfig(url="https://maps.example/mcp"),
+        signature="sig",
+        owner=OWNER,
+        status="error",
+        error="Connection refused",
+        session=None,
+    )
+    manager._connections[(OWNER, SERVER)] = conn
+
+    connected = False
+
+    async def _mock_connect(name, cfg, owner=SHARED_OWNER, retry_delay=30.0):
+        nonlocal connected
+        connected = True
+        new_conn = _ServerConnection(
+            name=name,
+            config=cfg,
+            signature="sig",
+            owner=owner,
+            status="connected",
+            session=_WorkingSession(),
+        )
+        new_conn.task = asyncio.create_task(asyncio.Event().wait())
+        manager._connections[(owner, name)] = new_conn
+
+    manager._connect = _mock_connect
+
+    result = await manager.call_tool(OWNER, SERVER, "compute_routes", {}, timeout=5)
+
+    assert connected is True
+    assert result == "on demand success"
+    if (OWNER, SERVER) in manager._connections and manager._connections[(OWNER, SERVER)].task:
+        manager._connections[(OWNER, SERVER)].task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_run_server_detects_stream_closure() -> None:
+    """When the underlying write stream is closed, _run_server detects it,
+    unregisters adapters, and marks connection as error.
+    """
+    import anyio
+    from unittest.mock import AsyncMock
+
+    manager = MCPConnectionManager()
+    conn = _ServerConnection(
+        name=SERVER,
+        config=MCPServerConfig(url="https://maps.example/mcp"),
+        signature="sig",
+        owner=OWNER,
+    )
+    ready = asyncio.get_running_loop().create_future()
+
+    send_stream, recv_stream = anyio.create_memory_object_stream()
+
+    class _MockListing:
+        tools = []
+
+    class _MockSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def initialize(self):
+            pass
+
+        async def list_tools(self):
+            return _MockListing()
+
+    manager._open_transport = AsyncMock(return_value=(recv_stream, send_stream))
+    import mcp
+
+    orig_client = getattr(mcp, "ClientSession", None)
+    mcp.ClientSession = _MockSession
+    try:
+        task = asyncio.create_task(manager._run_server(conn, ready))
+        await ready
+        # Close send_stream to simulate transport drop
+        await send_stream.aclose()
+        # Wait up to 2 seconds for _run_server to detect closure and terminate
+        await asyncio.wait_for(task, timeout=2.0)
+        assert conn.status == "error"
+        assert conn.session is None
+    finally:
+        if orig_client:
+            mcp.ClientSession = orig_client
+
+
