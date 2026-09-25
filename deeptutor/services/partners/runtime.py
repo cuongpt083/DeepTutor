@@ -27,6 +27,7 @@ import base64
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 import hashlib
+import inspect
 import json
 import logging
 import mimetypes
@@ -306,12 +307,16 @@ class PartnerRunner:
         store = self._store_for(msg)
         async with self._lock_for(session_key, actor_id=personal_actor_id(msg.actor)):
             if options.allow_commands:
-                command = PartnerCommandHandler(
+                cmd_res = PartnerCommandHandler(
                     partner_id=self.partner_id,
                     config=self.config,
                     store=store,
                     save_config=self.save_config,
                 ).dispatch(msg)
+                if inspect.isawaitable(cmd_res):
+                    command = await cmd_res
+                else:
+                    command = cmd_res
                 if command is not None:
                     return command.content
 
@@ -828,7 +833,10 @@ class PartnerRunner:
         configured = getattr(self.config, "builtin_tools", None)
         if configured is None:
             return None
-        return [str(name) for name in configured]
+        tools = [str(name) for name in configured]
+        if getattr(self.config, "mcp_tools", None) and "load_tools" not in tools:
+            tools.append("load_tools")
+        return tools
 
     def _build_skills_manifest(self) -> str:
         if getattr(self.config, "workspace_id", ""):

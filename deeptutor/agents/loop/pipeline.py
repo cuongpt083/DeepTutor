@@ -636,6 +636,8 @@ class AgenticLoopPipeline:
         except Exception:
             logger.warning("PageIndex SDK tool preparation failed", exc_info=True)
         try:
+            mcp_filter = (context.metadata or {}).get("mcp_tools_filter")
+            mcp_preloaded = [str(x) for x in mcp_filter] if isinstance(mcp_filter, list) else []
             view = await build_tool_view(
                 base_registry=self.registry,
                 scope=self._tool_scope(context),
@@ -648,7 +650,7 @@ class AgenticLoopPipeline:
                     ),
                 ),
                 overlay_tools=pageindex_tools,
-                preloaded_names=[tool.name for tool in pageindex_tools],
+                preloaded_names=[tool.name for tool in pageindex_tools] + mcp_preloaded,
             )
         except Exception:
             # ``build_tool_view`` is contractually non-raising; this is defence
@@ -1404,6 +1406,14 @@ class AgenticLoopPipeline:
         elif tool_name == "write_note":
             kwargs["conversation_history"] = list(context.conversation_history or [])
             kwargs["current_user_message"] = context.user_message or ""
+        elif tool_name.startswith("mcp_"):
+            meta = context.metadata or {}
+            channel = meta.get("channel")
+            sender_id = meta.get("sender_id")
+            if channel and not kwargs.get("platform"):
+                kwargs["platform"] = str(channel)
+            if sender_id and not kwargs.get("platformUserId"):
+                kwargs["platformUserId"] = str(sender_id)
         elif tool_name == "geogebra_analysis":
             first_image = next(
                 (

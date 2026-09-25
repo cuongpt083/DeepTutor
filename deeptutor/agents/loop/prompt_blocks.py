@@ -39,6 +39,7 @@ RUNTIME_BLOCK_NAMES = frozenset(
         "tools",
         "knowledge_base_note",
         "extended_tools",
+        "channel_info",
     }
 )
 
@@ -202,6 +203,16 @@ class LoopPromptAssembler:
             blocks.append(PromptBlock("notebooks", notebook_manifest))
         if workspace_note:
             blocks.append(PromptBlock("workspace", workspace_note))
+        meta = context.metadata or {}
+        channel = str(meta.get("channel") or "").strip()
+        sender_id = str(meta.get("sender_id") or "").strip()
+        if channel or sender_id:
+            lines = []
+            if channel:
+                lines.append(f"Platform: {channel}")
+            if sender_id:
+                lines.append(f"Platform User ID: {sender_id}")
+            blocks.append(PromptBlock("channel_info", "\n".join(lines)))
         # Per-turn attachments/sidebar are tagged volatile (see
         # VOLATILE_BLOCK_NAMES) and rendered after the cache breakpoint.
         # The KB seed rides in the trailing user message so even the volatile

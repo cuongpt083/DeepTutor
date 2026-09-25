@@ -1278,3 +1278,250 @@ class TestPartnerCommands:
         runner_en = _runner(partners_root, config=PartnerConfig(name="Ada", language="en"))
         await runner_en.process_message(_msg("hello"))
         assert fake_orchestrator.seen_contexts[-1].language == "en"
+
+    @pytest.mark.asyncio
+    async def test_pair_command_handling(self, partners_root, monkeypatch):
+        from unittest.mock import AsyncMock, MagicMock
+        from deeptutor.partners.bus.events import InboundMessage
+        from deeptutor.services.partners.commands import PartnerCommandHandler
+
+        runner = _runner(partners_root)
+        handler = PartnerCommandHandler(
+            partner_id="ada", config=runner.config, store=_shared_store()
+        )
+
+        # 1. Group guard
+        group_msg = InboundMessage(
+            channel="telegram",
+            sender_id="123",
+            chat_id="chat-1",
+            content="/pair ABCDEFGH",
+            metadata={"is_group": True},
+        )
+        res = await handler.dispatch(group_msg)
+        assert res is not None and "tin nhắn riêng" in res.content
+
+        # 2. Missing code argument
+        no_arg_msg = InboundMessage(
+            channel="telegram",
+            sender_id="123",
+            chat_id="chat-1",
+            content="/pair",
+        )
+        res = await handler.dispatch(no_arg_msg)
+        assert res is not None and "Cách dùng" in res.content
+
+        # 3. Successful pair via MCP mock
+        mock_mgr = MagicMock()
+        mock_adapter = MagicMock()
+        mock_adapter._original_name = "channel_pair"
+        mock_conn = MagicMock()
+        mock_conn.owner = "_shared"
+        mock_conn.name = "nutritech-crm"
+        mock_conn.adapters = [mock_adapter]
+        mock_mgr._connections = {("_shared", "nutritech-crm"): mock_conn}
+        mock_mgr.ensure_started = AsyncMock()
+        mock_mgr.call_tool = AsyncMock(return_value='{"success": true, "message": "Ghép nối thành công!", "coachName": "Cường"}')
+
+        monkeypatch.setattr("deeptutor.services.mcp.get_mcp_manager", lambda: mock_mgr)
+
+        valid_msg = InboundMessage(
+            channel="telegram",
+            sender_id="612670017",
+            chat_id="612670017",
+            content="/pair ABCDEFGH",
+        )
+        res = await handler.dispatch(valid_msg)
+        assert res is not None and "Ghép nối thành công!" in res.content
+        mock_mgr.call_tool.assert_awaited_once_with(
+            owner="_shared",
+            server_name="nutritech-crm",
+            tool_name="channel_pair",
+            arguments={
+                "code": "ABCDEFGH",
+                "platform": "telegram",
+                "platformUserId": "612670017",
+            },
+            timeout=15,
+        )
+
+    @pytest.mark.asyncio
+    async def test_checkin_command_validation_and_execution(self, partners_root, monkeypatch):
+        import json
+        from unittest.mock import AsyncMock, MagicMock
+        from deeptutor.partners.bus.events import InboundMessage
+        from deeptutor.services.partners.commands import PartnerCommandHandler
+
+        runner = _runner(partners_root)
+        handler = PartnerCommandHandler(
+            partner_id="ada", config=runner.config, store=_shared_store()
+        )
+
+        mock_mgr = MagicMock()
+        mock_adapter_list = MagicMock()
+        mock_adapter_list._original_name = "customer_list"
+        mock_adapter_checkin = MagicMock()
+        mock_adapter_checkin._original_name = "customer_log_checkin"
+        mock_conn = MagicMock()
+        mock_conn.owner = "_shared"
+        mock_conn.name = "nutritech-crm"
+        mock_conn.adapters = [mock_adapter_list, mock_adapter_checkin]
+        mock_mgr._connections = {("_shared", "nutritech-crm"): mock_conn}
+        mock_mgr.ensure_started = AsyncMock()
+
+        sample_customers = [
+            {"id": "cust_1", "name": "Nguyễn Thị Lan", "phone": "0912345678", "program": "co_nuoc_mo"},
+            {"id": "cust_2", "name": "Trần Văn Hùng", "phone": "0987654321", "program": "dinh_duong_te_bao"},
+        ]
+
+        async def fake_call_tool(owner, server_name, tool_name, arguments, timeout=15):
+            if tool_name == "customer_list":
+                return json.dumps(sample_customers)
+            if tool_name == "customer_log_checkin":
+                return json.dumps({
+                    "id": "ci_123",
+                    "customerId": arguments.get("customerId"),
+                    "date": arguments.get("date"),
+                    "waterCups": arguments.get("waterCups", 0),
+                    "mealsLogged": arguments.get("mealsLogged", 0),
+                    "exerciseMinutes": arguments.get("exerciseMinutes", 0),
+                    "totalScore": 85.5,
+                })
+            return "{}"
+
+        mock_mgr.call_tool = AsyncMock(side_effect=fake_call_tool)
+        monkeypatch.setattr("deeptutor.services.mcp.get_mcp_manager", lambda: mock_mgr)
+
+        # 1. Guardrail: No arguments at all
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/checkin"))
+        assert res is not None and "Thiếu thông tin" in res.content
+        assert "Cách dùng" in res.content
+        # Ensure customer_log_checkin was NOT called
+        assert not any(call.kwargs.get("tool_name") == "customer_log_checkin" for call in mock_mgr.call_tool.call_args_list)
+
+        # 2. Guardrail: Customer only, no metrics
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/checkin Lan"))
+        assert res is not None and "chỉ số" in res.content.lower()
+
+        # 3. Guardrail: Customer not found
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/checkin KhongCoAi nuoc=8 bua=3"))
+        assert res is not None and "Không tìm thấy" in res.content
+        assert "Nguyễn Thị Lan" in res.content  # Suggestions listed
+
+        # 4. Guardrail: Invalid metric values (e.g. negative or non-numeric)
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/checkin Lan nuoc=-5"))
+        assert res is not None and ("không hợp lệ" in res.content.lower() or "giá trị" in res.content.lower())
+
+        # 5. Success execution: valid customer and metrics
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/checkin Lan nuoc=8 bua=3 tap=30 baihoc=1"))
+        assert res is not None and "Nguyễn Thị Lan" in res.content
+        assert "Bioclock" in res.content or "điểm" in res.content.lower()
+        # Verify customer_log_checkin was invoked with resolved cust_1
+        checkin_calls = [c for c in mock_mgr.call_tool.call_args_list if c.kwargs.get("tool_name") == "customer_log_checkin"]
+        assert len(checkin_calls) == 1
+        args_passed = checkin_calls[0].kwargs.get("arguments", {})
+        assert args_passed.get("customerId") == "cust_1"
+        assert args_passed.get("waterCups") == 8
+        assert args_passed.get("mealsLogged") == 3
+        assert args_passed.get("exerciseMinutes") == 30
+        assert args_passed.get("lessonCompleted") == 1
+
+    @pytest.mark.asyncio
+    async def test_meal_and_report_and_script_commands(self, partners_root, monkeypatch):
+        import json
+        from unittest.mock import AsyncMock, MagicMock
+        from deeptutor.partners.bus.events import InboundMessage
+        from deeptutor.services.partners.commands import PartnerCommandHandler
+
+        runner = _runner(partners_root)
+        handler = PartnerCommandHandler(
+            partner_id="ada", config=runner.config, store=_shared_store()
+        )
+
+        mock_mgr = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.owner = "_shared"
+        mock_conn.name = "nutritech-crm"
+        adapters = []
+        for t in ["customer_list", "customer_get_profile", "customer_get_progress", "skill_get"]:
+            a = MagicMock()
+            a._original_name = t
+            adapters.append(a)
+        mock_conn.adapters = adapters
+        mock_mgr._connections = {("_shared", "nutritech-crm"): mock_conn}
+        mock_mgr.ensure_started = AsyncMock()
+
+        sample_customers = [
+            {"id": "cust_1", "name": "Nguyễn Thị Lan", "phone": "0912345678", "program": "co_nuoc_mo"},
+        ]
+
+        async def fake_call_tool(owner, server_name, tool_name, arguments, timeout=15):
+            if tool_name == "customer_list":
+                return json.dumps(sample_customers)
+            if tool_name == "customer_get_profile":
+                return json.dumps({
+                    "id": "cust_1",
+                    "name": "Nguyễn Thị Lan",
+                    "program": "co_nuoc_mo",
+                    "magicCalories": 1250,
+                    "targetWaterLiters": 2.5,
+                    "packageTier": "basic",
+                })
+            if tool_name == "customer_get_progress":
+                return json.dumps({
+                    "customerId": "cust_1",
+                    "customerName": "Nguyễn Thị Lan",
+                    "totalCheckins": 14,
+                    "checkinStreak": 7,
+                    "averageScore": 88.5,
+                    "weightTrend": {
+                        "initialKg": 65.0,
+                        "currentKg": 63.2,
+                        "diffKg": -1.8,
+                    },
+                })
+            if tool_name == "skill_get":
+                return "# Objection Handling\nDealing with price objections."
+            return "{}"
+
+        mock_mgr.call_tool = AsyncMock(side_effect=fake_call_tool)
+        monkeypatch.setattr("deeptutor.services.mcp.get_mcp_manager", lambda: mock_mgr)
+
+        # 1. /meal validation: missing arg
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/meal"))
+        assert res is not None and "chỉ định tên khách hàng" in res.content.lower()
+
+        # 2. /meal execution
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/thucdon Lan"))
+        assert res is not None and "1,250" in res.content or "1250" in res.content
+
+        # 3. /report validation: missing arg
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/report"))
+        assert res is not None and "chỉ định tên khách hàng" in res.content.lower()
+
+        # 4. /report execution
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/baocao Lan"))
+        assert res is not None and "-1.8" in res.content
+
+        # 5. /script validation: missing arg
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/script"))
+        assert res is not None and "thiếu thông tin" in res.content.lower()
+
+        # 6. /script validation: missing topic
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/script Lan"))
+        assert res is not None and "chủ đề" in res.content.lower()
+
+        # 7. /script execution
+        res = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="/script Lan ngay_3"))
+        assert res is not None and "Nguyễn Thị Lan" in res.content
+
+        # 8. Conversational dispatch equivalents
+        res_conv_meal = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="thực đơn cho Lan"))
+        assert res_conv_meal is not None and "Nguyễn Thị Lan" in res_conv_meal.content
+
+        res_conv_rep = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="báo cáo tiến độ Lan"))
+        assert res_conv_rep is not None and "-1.8" in res_conv_rep.content
+
+        res_conv_scr = await handler.dispatch(InboundMessage(channel="telegram", sender_id="42", chat_id="42", content="kịch bản chăm sóc Lan ngay_3"))
+        assert res_conv_scr is not None and "Nguyễn Thị Lan" in res_conv_scr.content
+
