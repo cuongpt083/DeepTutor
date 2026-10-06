@@ -323,6 +323,8 @@ def apply_to_completion_kwargs(
     binding: str | None = None,
     session_id: str | None = None,
     cache_ttl: str | None = None,
+    capability: str | None = None,
+    owner_scope: str | None = None,
 ) -> dict[str, Any]:
     """Mutate a ``chat.completions.create`` kwargs dict with cache knobs.
 
@@ -340,6 +342,24 @@ def apply_to_completion_kwargs(
     key = str(session_id or "").strip()
     if key and wants_prompt_cache_key(binding, model):
         kwargs.setdefault("prompt_cache_key", key)
+
+    # Hook keep-warm capture for chat capability
+    if capability == "chat" and key and owner_scope:
+        try:
+            from deeptutor.services.llm.keepalive import capture_chat_turn
+
+            capture_chat_turn(
+                owner_scope=owner_scope,
+                session_id=key,
+                capability="chat",
+                model=str(model or ""),
+                binding=str(binding or ""),
+                messages=kwargs.get("messages") or [],
+                tools=kwargs.get("tools"),
+            )
+        except Exception:
+            pass
+
     return kwargs
 
 
