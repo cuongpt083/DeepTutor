@@ -139,3 +139,61 @@ def test_resolve_admin_payload_when_nothing_else(
     assert resolved.client_id == "admin-id"
     assert resolved.client_secret == "admin-secret"
     assert resolved.source == "admin_payload"
+
+
+def test_path_probes_treat_permission_error_as_missing() -> None:
+    class Denied:
+        def is_dir(self) -> bool:
+            raise PermissionError(
+                13, "Permission denied", "/root/.bun/install/global/node_modules"
+            )
+
+        def is_file(self) -> bool:
+            raise PermissionError(13, "Permission denied", "/root/.local/bin/agy")
+
+    denied = Denied()
+    assert creds_module._is_dir(denied) is False  # type: ignore[arg-type]
+    assert creds_module._is_file(denied) is False  # type: ignore[arg-type]
+
+
+def test_discovery_does_not_raise_when_home_is_unreadable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Docker: UID 1000 + HOME=/root → EACCES on ~/.bun/... must not 500 OAuth start."""
+
+    home = tmp_path / "root"
+    home.mkdir()
+    bun = home / ".bun" / "install" / "global" / "node_modules"
+    npm_global = home / ".npm-global" / "lib" / "node_modules"
+    monkeypatch.setattr(creds_module.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(creds_module.shutil, "which", lambda _name: None)
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    original_is_dir = Path.is_dir
+    original_is_file = Path.is_file
+
+    def is_dir(self: Path) -> bool:
+        if self in {bun, npm_global}:
+            raise PermissionError(13, "Permission denied", str(self))
+        return original_is_dir(self)
+
+    def is_file(self: Path) -> bool:
+        posix = self.as_posix()
+        if posix.endswith(
+            (
+                "/.local/bin/agy",
+                "/.antigravity/bin/agy",
+                "/.antigravity-cli/bin/agy",
+            )
+        ):
+            raise PermissionError(13, "Permission denied", str(self))
+        return original_is_file(self)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    monkeypatch.setattr(Path, "is_file", is_file)
+
+    assert bun not in creds_module._node_global_module_roots()
+    creds_module._candidate_client_files()
+    assert discover_local_client_credentials() is None
+    assert resolve_antigravity_oauth_client() is None

@@ -222,9 +222,9 @@ RUN mkdir -p \
 # non-root in either runtime. UID 1000 also matches the host user under
 # keep-id with a bind mount on ./data.
 RUN groupadd --system --gid 1000 deeptutor \
-    && useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin deeptutor \
-    && mkdir -p /app/web/.next/cache \
-    && chown -R deeptutor:deeptutor /app/data /app/web /app/bridges
+    && useradd --system --uid 1000 --gid 1000 --home-dir /home/deeptutor --no-create-home --shell /usr/sbin/nologin deeptutor \
+    && mkdir -p /app/web/.next/cache /home/deeptutor \
+    && chown -R deeptutor:deeptutor /app/data /app/web /app/bridges /home/deeptutor
 
 
 # supervisord config is split into two files so the production and development
@@ -270,7 +270,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"
+environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1",HOME="/home/deeptutor"
 
 [program:frontend]
 command=/bin/bash /app/start-frontend.sh
@@ -283,7 +283,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=NODE_ENV="production"
+environment=NODE_ENV="production",HOME="/home/deeptutor"
 
 [program:zalo-bridge]
 command=/bin/bash /app/start-zalo-bridge.sh
@@ -296,6 +296,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
+environment=HOME="/home/deeptutor"
 EOF
 
 RUN sed -i 's/\r$//' /etc/supervisor/conf.d/programs.conf
@@ -434,6 +435,13 @@ init_user_directories(Path('/app'))
 # Idempotent: re-chown /app/data so the unprivileged `deeptutor` user (UID 1000)
 # owns it. Cheap on no-op; the only first-start cost is one stat per file.
 chown -R deeptutor:deeptutor /app/data 2>/dev/null || true
+
+# supervisord inherits HOME=/root from PID 1. The backend drops to UID 1000, so
+# Path.home() would otherwise probe /root/.bun/... and pathlib raises EACCES
+# (Sign in with Google). Give the app user a writable home; compose.yaml bind-
+# mounts ./data/home at /home so recreate the dir after that overlay.
+mkdir -p /home/deeptutor 2>/dev/null || true
+chown deeptutor:deeptutor /home/deeptutor 2>/dev/null || true
 
 # Optional dependencies (#762). A container is disposable, so anything
 # `docker exec … pip install`ed into a running one is gone at the next
@@ -594,7 +602,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"
+environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1",HOME="/home/deeptutor"
 
 [program:frontend]
 command=/bin/bash -c "cd /app/web && node scripts/dev.mjs -H 0.0.0.0 -p ${FRONTEND_PORT:-3782}"
@@ -607,7 +615,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=NODE_ENV="development"
+environment=NODE_ENV="development",HOME="/home/deeptutor"
 
 [program:zalo-bridge]
 command=/bin/bash /app/start-zalo-bridge.sh
@@ -620,6 +628,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
+environment=HOME="/home/deeptutor"
 EOF
 
 RUN sed -i 's/\r$//' /etc/supervisor/conf.d/programs.conf

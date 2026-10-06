@@ -48,23 +48,60 @@ def _env(name: str) -> str:
     return value.strip() if value and value.strip() else ""
 
 
+def _is_dir(path: Path) -> bool:
+    """``Path.is_dir()`` but EACCES/other OS errors are "not a directory".
+
+    pathlib only swallows ENOENT-class errors. In Docker the backend runs as
+    UID 1000 while inheriting ``HOME=/root`` from supervisord, so probing
+    ``~/.bun/install/global/node_modules`` raises ``PermissionError`` instead
+    of returning False — and Sign in with Google 500s.
+    """
+
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
+def _glob_dirs(root: Path, pattern: str) -> list[Path]:
+    try:
+        return sorted(root.glob(pattern))
+    except OSError:
+        return []
+
+
+def _rglob_files(root: Path, pattern: str) -> list[Path]:
+    try:
+        return sorted(root.rglob(pattern))
+    except OSError:
+        return []
+
+
 def _node_global_module_roots() -> list[Path]:
     """Best-effort global ``node_modules`` roots without shelling out to npm."""
 
+    home = Path.home()
     candidates: list[Path] = [
-        Path.home() / ".bun" / "install" / "global" / "node_modules",
-        Path.home() / ".npm-global" / "lib" / "node_modules",
+        home / ".bun" / "install" / "global" / "node_modules",
+        home / ".npm-global" / "lib" / "node_modules",
         Path("/usr/local/lib/node_modules"),
         Path("/usr/lib/node_modules"),
     ]
-    candidates.extend(sorted(Path.home().glob(".nvm/versions/node/*/lib/node_modules")))
+    candidates.extend(_glob_dirs(home, ".nvm/versions/node/*/lib/node_modules"))
     appdata = os.environ.get("APPDATA")
     if appdata:
         npm = Path(appdata) / "npm" / "node_modules"
         candidates.append(npm)
-        candidates.extend(sorted((Path(appdata) / "nvm").glob("v*/node_modules")))
-        candidates.extend(sorted((Path(appdata) / "nvm").glob("installs/v*/node_modules")))
-    return [path for path in candidates if path.is_dir()]
+        candidates.extend(_glob_dirs(Path(appdata) / "nvm", "v*/node_modules"))
+        candidates.extend(_glob_dirs(Path(appdata) / "nvm", "installs/v*/node_modules"))
+    return [path for path in candidates if _is_dir(path)]
 
 
 def _candidate_client_files() -> list[Path]:
@@ -73,8 +110,8 @@ def _candidate_client_files() -> list[Path]:
     files: list[Path] = []
     for root in _node_global_module_roots():
         package = root / "@google" / "gemini-cli"
-        if package.is_dir():
-            files.extend(sorted(package.rglob("*.js")))
+        if _is_dir(package):
+            files.extend(_rglob_files(package, "*.js"))
     on_path = shutil.which("agy")
     if on_path:
         files.append(Path(on_path))
@@ -85,12 +122,12 @@ def _candidate_client_files() -> list[Path]:
         "/usr/local/bin/agy",
     ):
         path = Path(raw).expanduser()
-        if path.is_file():
+        if _is_file(path):
             files.append(path)
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         windows_binary = Path(local_app_data) / "agy" / "bin" / "agy.exe"
-        if windows_binary.is_file():
+        if _is_file(windows_binary):
             files.append(windows_binary)
     seen: list[Path] = []
     for path in files:

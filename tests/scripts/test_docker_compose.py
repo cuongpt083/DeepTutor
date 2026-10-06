@@ -211,6 +211,10 @@ def test_supervisord_runs_as_root_with_unprivileged_children() -> None:
         assert "user=deeptutor" in section, (
             f"supervisord program '{name}' must run as deeptutor (user=deeptutor)"
         )
+        assert 'HOME="/home/deeptutor"' in section, (
+            f"supervisord program '{name}' must set HOME=/home/deeptutor "
+            "so Path.home() is not /root (EACCES on ~/.bun during Google OAuth)"
+        )
 
 
 def test_frontend_api_is_url_agnostic_passthrough() -> None:
