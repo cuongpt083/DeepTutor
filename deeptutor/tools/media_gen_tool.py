@@ -58,7 +58,9 @@ def _data_uri_references(value: Any) -> list[str]:
     for item in items:
         text = str(item or "").strip()
         if text.startswith("data:image/") and ";base64," in text:
-            refs.append(text)
+            b64_part = text.split(";base64,", 1)[1]
+            if len(b64_part) * 3 // 4 <= 10 * 1024 * 1024:
+                refs.append(text)
         if len(refs) >= 3:
             break
     return refs

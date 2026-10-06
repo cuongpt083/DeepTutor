@@ -539,7 +539,7 @@ def _require_antigravity_oauth_actor() -> None:
     import os
 
     env_val = os.environ.get("ANTIGRAVITY_ENABLED", "").strip().lower()
-    enabled = env_val not in {"0", "false", "no", "off"}
+    enabled = env_val in {"1", "true", "yes", "on"}
     if not enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

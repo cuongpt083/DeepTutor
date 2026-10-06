@@ -260,6 +260,50 @@ def test_factory_sets_1h_only_for_direct_long_retention(monkeypatch: pytest.Monk
     assert custom._prompt_cache_ttl is None
 
 
+def test_build_kwargs_extra_headers_and_beta_header_merge() -> None:
+    # 1. Direct anthropic with 1h TTL gets the beta header
+    direct_1h = AnthropicProvider(
+        api_key="test-key",
+        binding="anthropic",
+        provider_name="anthropic",
+        prompt_cache_ttl="1h",
+        extra_headers={"custom-header": "value", "anthropic-beta": "existing-beta"},
+    )
+    kwargs = direct_1h._build_kwargs(
+        _system_messages(), None, "claude-sonnet-4-6", 128, 0.2, None, None
+    )
+    headers = kwargs["extra_headers"]
+    assert headers["custom-header"] == "value"
+    assert "extended-cache-ttl-2025-04-11" in headers["anthropic-beta"]
+    assert "existing-beta" in headers["anthropic-beta"]
+
+    # 2. Short retention retains plain extra headers without beta addition
+    direct_short = AnthropicProvider(
+        api_key="test-key",
+        binding="anthropic",
+        provider_name="anthropic",
+        prompt_cache_ttl="",
+        extra_headers={"custom-header": "value"},
+    )
+    kwargs_short = direct_short._build_kwargs(
+        _system_messages(), None, "claude-sonnet-4-6", 128, 0.2, None, None
+    )
+    assert kwargs_short["extra_headers"] == {"custom-header": "value"}
+
+    # 3. Custom anthropic never receives the extended-cache-ttl beta header
+    custom_1h = AnthropicProvider(
+        api_key="test-key",
+        binding="custom_anthropic",
+        provider_name="custom_anthropic",
+        prompt_cache_ttl="1h",
+        extra_headers={"custom-header": "value"},
+    )
+    kwargs_custom = custom_1h._build_kwargs(
+        _system_messages(), None, "claude-sonnet-4-6", 128, 0.2, None, None
+    )
+    assert kwargs_custom["extra_headers"] == {"custom-header": "value"}
+
+
 def test_usage_summary_bills_1h_writes_at_2x(monkeypatch: pytest.MonkeyPatch) -> None:
     from deeptutor.runtime.agentic.usage import UsageTracker
     from deeptutor.services.llm.keepalive import KeepWarmConfig, set_config, stop_runner

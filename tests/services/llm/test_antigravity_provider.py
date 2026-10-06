@@ -200,12 +200,31 @@ def test_factory_refuses_missing_owner_credentials(monkeypatch: pytest.MonkeyPat
     from deeptutor.services.llm.exceptions import LLMConfigError
     from deeptutor.services.llm.provider_factory import _build_runtime_provider
 
+    monkeypatch.setenv("ANTIGRAVITY_ENABLED", "1")
     config = LLMConfig(
         model="google-antigravity/gemini-3-pro-low",
         api_key="",
         binding="google_antigravity",
         provider_name="google_antigravity",
     )
-    with pytest.raises(LLMConfigError):
+    with pytest.raises(LLMConfigError) as exc_info:
         _build_runtime_provider(config, configure_env=False)
+    assert "not signed in" in str(exc_info.value)
     assert constructed["provider"] is False
+
+
+def test_factory_raises_when_antigravity_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from deeptutor.services.llm.config import LLMConfig
+    from deeptutor.services.llm.exceptions import LLMConfigError
+    from deeptutor.services.llm.provider_factory import _build_runtime_provider
+
+    monkeypatch.delenv("ANTIGRAVITY_ENABLED", raising=False)
+    config = LLMConfig(
+        model="google-antigravity/gemini-3-pro-low",
+        api_key="",
+        binding="google_antigravity",
+        provider_name="google_antigravity",
+    )
+    with pytest.raises(LLMConfigError) as exc_info:
+        _build_runtime_provider(config, configure_env=False)
+    assert "disabled" in str(exc_info.value)

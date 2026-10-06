@@ -24,6 +24,11 @@ ROUTES = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _enable_antigravity_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTIGRAVITY_ENABLED", "1")
+
+
 class _Service:
     instances: list["_Service"] = []
 
@@ -141,3 +146,14 @@ def test_admin_payload_credentials_are_accepted(client, tmp_path, monkeypatch) -
 
     assert response.status_code == 200
     assert _Service.instances[-1].calls == [("start", "admin-id", "admin-secret")]
+
+
+def test_antigravity_disabled_by_default_returns_403(client, monkeypatch) -> None:
+    test_client, _ = client
+    monkeypatch.delenv("ANTIGRAVITY_ENABLED", raising=False)
+    for method, path in ROUTES:
+        fn = getattr(test_client, method)
+        body = _body(path)
+        response = fn(path) if method == "get" or body is None else fn(path, json=body)
+        assert response.status_code == 403, (path, response.status_code)
+        assert "disabled" in response.text

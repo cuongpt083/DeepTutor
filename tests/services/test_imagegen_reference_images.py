@@ -104,3 +104,36 @@ async def test_imagegen_tool_forwards_data_uris_only(tmp_path: Path, monkeypatch
     )
     assert result.success
     assert captured["reference_images"] == ["data:image/png;base64,abc"]
+
+
+@pytest.mark.asyncio
+async def test_imagegen_oversized_reference_image_dropped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import deeptutor.services.imagegen as imagegen_mod
+    from deeptutor.services.workspace import get_content_workspace_service
+    from deeptutor.tools.media_gen_tool import ImagegenTool
+
+    captured: dict[str, Any] = {}
+
+    async def _mock_gen(prompt: str, **kwargs: Any) -> list[tuple[bytes, str]]:
+        captured.update(kwargs)
+        return [(b"png", "image/png")]
+
+    monkeypatch.setattr(imagegen_mod, "generate_image", _mock_gen)
+    selected = tmp_path / "selected-workspace"
+    selected.mkdir()
+    monkeypatch.setenv("DEEPTUTOR_WORKSPACE_ROOT", str(selected))
+    runtime = get_content_workspace_service().create_runtime_context(
+        capability="chat", session_id="session-a", turn_id="turn-a"
+    )
+    # 15MB of base64 chars (> 10MB payload)
+    huge_b64 = "A" * (15 * 1024 * 1024)
+    huge_uri = f"data:image/png;base64,{huge_b64}"
+    valid_uri = "data:image/png;base64,abc"
+    result = await ImagegenTool().execute(
+        prompt="a cat",
+        reference_images=[huge_uri, valid_uri],
+        _workspace_dir=str(Path(runtime.output_dir) / "media"),
+        _workspace_id=runtime.workspace_id,
+    )
+    assert result.success
+    assert captured["reference_images"] == [valid_uri]
