@@ -99,6 +99,12 @@ services:
       # workspace subtrees — see the scope note on that service's own volumes.
       - ./data:/app/data
       - "${DEEPTUTOR_WORKSPACE_HOST:-./data/user/workspace}:/workspace"
+      # Optional Linux `agy` binary so Sign in with Google can borrow the
+      # embedded OAuth client. Do not mount Windows agy.exe or ~/.gemini
+      # (user tokens; DeepTutor stores its own under data/). Prefer
+      # ANTIGRAVITY_CLIENT_ID / ANTIGRAVITY_CLIENT_SECRET when the host has
+      # no Linux agy.
+      # - /usr/local/bin/agy:/usr/local/bin/agy:ro
 
     environment:
       # Route untrusted shell exec to the runner sidecar (SYSTEM isolation).
@@ -112,6 +118,9 @@ services:
       - DEEPTUTOR_WORKSPACE_ALLOWED_ROOTS=/workspace
       - ENABLE_KB_PRESEED=${ENABLE_KB_PRESEED:-false}
       - ANTIGRAVITY_ENABLED=${ANTIGRAVITY_ENABLED:-false}
+      - ANTIGRAVITY_CLIENT_ID=${ANTIGRAVITY_CLIENT_ID:-}
+      - ANTIGRAVITY_CLIENT_SECRET=${ANTIGRAVITY_CLIENT_SECRET:-}
+      - ANTIGRAVITY_AGY_PATH=${ANTIGRAVITY_AGY_PATH:-}
 
       # Optional dependencies, re-applied on every start (#762). Installing
       # these with `docker exec` does not survive `compose down`, so declare

@@ -21,6 +21,9 @@ import shutil
 
 CLIENT_ID_ENV_VAR = "ANTIGRAVITY_CLIENT_ID"
 CLIENT_SECRET_ENV_VAR = "ANTIGRAVITY_CLIENT_SECRET"
+#: Optional path to a Linux ``agy`` (or gemini-cli) file to scan for the
+#: embedded Google OAuth client. Used in Docker when the image has no CLI.
+AGY_PATH_ENV_VAR = "ANTIGRAVITY_AGY_PATH"
 
 #: Public Gemini CLI shared client id. A local ``agy`` install bundles both this
 #: client and Antigravity's own dedicated one, so prefer the shared client (the
@@ -112,6 +115,11 @@ def _candidate_client_files() -> list[Path]:
         package = root / "@google" / "gemini-cli"
         if _is_dir(package):
             files.extend(_rglob_files(package, "*.js"))
+    extra = _env(AGY_PATH_ENV_VAR)
+    if extra:
+        extra_path = Path(extra).expanduser()
+        if _is_file(extra_path):
+            files.append(extra_path)
     on_path = shutil.which("agy")
     if on_path:
         files.append(Path(on_path))

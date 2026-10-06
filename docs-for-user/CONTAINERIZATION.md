@@ -418,6 +418,27 @@ Project-root `.env` files are intentionally ignored as application
 config. The Web **Settings** page is the recommended editor for the
 JSON/YAML files; deep links to each section live in the page sidebar.
 
+### Google Antigravity OAuth
+
+The image does not ship `agy` or `gemini-cli`. **Sign in with Google**
+needs the Google OAuth *client* (id + secret baked into those CLIs),
+not a `~/.gemini` token cache. Do not bind-mount `~/.gemini` for this;
+DeepTutor stores user tokens under `data/.../private/google-antigravity/`.
+
+Set `ANTIGRAVITY_ENABLED=true` and pick one:
+
+1. `ANTIGRAVITY_CLIENT_ID` / `ANTIGRAVITY_CLIENT_SECRET` in the compose
+   `.env` (Compose injects them; the app reads `os.environ` directly).
+2. Admin UI: Settings → Providers → **Configure OAuth Client ID**.
+3. Mount a **Linux** `agy` binary at `/usr/local/bin/agy`, or set
+   `ANTIGRAVITY_AGY_PATH` to that file. Windows `agy.exe` will not work
+   in a Linux container.
+
+On a remote host the Google redirect is
+`http://localhost:51121/oauth-callback`. If the browser cannot reach
+that loopback inside the container, paste the full redirected URL into
+the OAuth card.
+
 ---
 
 ## PocketBase

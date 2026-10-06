@@ -84,6 +84,15 @@ def test_compose_maps_one_stable_content_workspace() -> None:
     assert "DEEPTUTOR_RUNNER_ALLOWED_WORKDIRS=/workspace/outputs" in source
 
 
+def test_compose_files_pass_antigravity_oauth_client_env() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for name in ("docker-compose.yml", "docker-compose.ghcr.yml", "compose.yaml"):
+        content = (root / name).read_text(encoding="utf-8")
+        assert "ANTIGRAVITY_CLIENT_ID=${ANTIGRAVITY_CLIENT_ID:-}" in content, name
+        assert "ANTIGRAVITY_CLIENT_SECRET=${ANTIGRAVITY_CLIENT_SECRET:-}" in content, name
+        assert "ANTIGRAVITY_AGY_PATH=${ANTIGRAVITY_AGY_PATH:-}" in content, name
+
+
 def test_compose_files_do_not_consume_legacy_env_names() -> None:
     root = Path(__file__).resolve().parents[2]
     for name in ("docker-compose.yml", "docker-compose.ghcr.yml"):

@@ -82,6 +82,10 @@ services:
     environment:
       - DEEPTUTOR_WORKSPACE_ROOT=/workspace
       - DEEPTUTOR_WORKSPACE_ALLOWED_ROOTS=/workspace
+      - ANTIGRAVITY_ENABLED=${ANTIGRAVITY_ENABLED:-false}
+      - ANTIGRAVITY_CLIENT_ID=${ANTIGRAVITY_CLIENT_ID:-}
+      - ANTIGRAVITY_CLIENT_SECRET=${ANTIGRAVITY_CLIENT_SECRET:-}
+      - ANTIGRAVITY_AGY_PATH=${ANTIGRAVITY_AGY_PATH:-}
 
     # Optional dependencies, re-applied on every start (#762). This image
     # ships the base install; anything added with `docker exec … pip install`

@@ -35,6 +35,27 @@ def _clear_credential_cache() -> Iterator[None]:
     discover_local_client_credentials.cache_clear()
 
 
+def test_discover_scans_agy_path_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blob = tmp_path / "agy"
+    blob.write_bytes(
+        " ".join([_FAKE_SHARED_CLIENT_ID, _FAKE_CLIENT_SECRET]).encode()
+    )
+    monkeypatch.setenv(creds_module.AGY_PATH_ENV_VAR, str(blob))
+    monkeypatch.setattr(creds_module.shutil, "which", lambda _name: None)
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    empty_home = tmp_path / "home"
+    empty_home.mkdir()
+    monkeypatch.setattr(creds_module.Path, "home", classmethod(lambda cls: empty_home))
+
+    assert discover_local_client_credentials() == (
+        _FAKE_SHARED_CLIENT_ID,
+        (_FAKE_CLIENT_SECRET,),
+    )
+
+
 def test_discover_local_client_credentials_prefers_shared_client(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

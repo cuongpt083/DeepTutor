@@ -183,6 +183,9 @@ services:
       # the host side with DEEPTUTOR_WORKSPACE_HOST=/absolute/folder.
       - ${DEEPTUTOR_WORKSPACE_HOST:-./data/user/workspace}:/workspace:U
       - ./deeptutor:/app/deeptutor:ro,U
+      # Optional Linux `agy` binary (not Windows .exe, not ~/.gemini).
+      # Prefer ANTIGRAVITY_CLIENT_ID / ANTIGRAVITY_CLIENT_SECRET in .env.
+      # - /usr/local/bin/agy:/usr/local/bin/agy:ro,U
     environment:
       # Time zone — picked up by Python (time.tzset) and Next.js at boot.
       - TZ=${TZ:-GMT+7}
@@ -191,6 +194,9 @@ services:
       - DEEPTUTOR_WORKSPACE_ALLOWED_ROOTS=/workspace
       - ENABLE_KB_PRESEED=${ENABLE_KB_PRESEED:-false}
       - ANTIGRAVITY_ENABLED=${ANTIGRAVITY_ENABLED:-false}
+      - ANTIGRAVITY_CLIENT_ID=${ANTIGRAVITY_CLIENT_ID:-}
+      - ANTIGRAVITY_CLIENT_SECRET=${ANTIGRAVITY_CLIENT_SECRET:-}
+      - ANTIGRAVITY_AGY_PATH=${ANTIGRAVITY_AGY_PATH:-}
       - KB_PRESEED_MODE=${KB_PRESEED_MODE:-off}
       - LAYA_SERVICE_URL=${LAYA_SERVICE_URL:-http://deeptutor-laya:8000/v1/decide}
       - LAYA_THRESHOLD=${LAYA_THRESHOLD:-0.70}
