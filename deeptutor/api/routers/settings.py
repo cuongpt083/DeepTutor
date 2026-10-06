@@ -2222,38 +2222,47 @@ class AntigravityCallbackPayload(BaseModel):
     callback_url: str
 
 
-def _antigravity_oauth_client(payload: AntigravityLoginStartPayload | None) -> tuple[str, str]:
-    """Env credentials for any actor; payload secrets only for an admin."""
+def _antigravity_oauth_client(payload: AntigravityLoginStartPayload | None):
+    """Env, then local agy/gemini-cli, then admin payload secrets."""
     import os
 
-    client_id = os.environ.get("ANTIGRAVITY_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "").strip()
-    if (not client_id or not client_secret) and get_current_user().is_admin and payload is not None:
-        client_id = client_id or str(payload.client_id or "").strip()
-        client_secret = client_secret or str(payload.client_secret or "").strip()
-    if not client_id or not client_secret:
+    from deeptutor.services.antigravity_auth.client_credentials import (
+        resolve_antigravity_oauth_client,
+    )
+
+    allow_payload = get_current_user().is_admin and payload is not None
+    resolved = resolve_antigravity_oauth_client(
+        env_client_id=os.environ.get("ANTIGRAVITY_CLIENT_ID", ""),
+        env_client_secret=os.environ.get("ANTIGRAVITY_CLIENT_SECRET", ""),
+        payload_client_id=str(payload.client_id or "") if payload is not None else "",
+        payload_client_secret=str(payload.client_secret or "") if payload is not None else "",
+        allow_payload=allow_payload,
+    )
+    if resolved is None:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Google Antigravity OAuth requires ANTIGRAVITY_CLIENT_ID and "
-                "ANTIGRAVITY_CLIENT_SECRET environment variables or admin configuration."
+                "Google Antigravity OAuth needs a client. Install the local Antigravity "
+                "CLI (agy) or Gemini CLI, set ANTIGRAVITY_CLIENT_ID and "
+                "ANTIGRAVITY_CLIENT_SECRET, or (admin) enter a Google OAuth client."
             ),
         )
-    return client_id, client_secret
+    return resolved
 
 
 @router.post("/providers/google-antigravity/oauth/start")
 async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload | None = None) -> dict[str, Any]:
     _require_antigravity_oauth_actor()
-    client_id, client_secret = _antigravity_oauth_client(payload)
+    resolved = _antigravity_oauth_client(payload)
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
     service = AntigravityAuthService(get_owner_secrets_dir())
     try:
         return await service.start_login(
-            client_id=client_id,
-            client_secret=client_secret,
+            client_id=resolved.client_id,
+            client_secret=resolved.client_secret,
+            client_secret_candidates=resolved.client_secret_candidates,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

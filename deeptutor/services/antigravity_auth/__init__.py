@@ -17,6 +17,10 @@ from .contracts import (
     AntigravityReauthRequiredError,
     AntigravityToken,
 )
+from .client_credentials import (
+    discover_local_client_credentials,
+    resolve_antigravity_oauth_client,
+)
 from .service import AntigravityAuthService
 
 __all__ = [
@@ -32,4 +36,6 @@ __all__ = [
     "AntigravityReauthRequiredError",
     "AntigravityToken",
     "AntigravityAuthService",
+    "discover_local_client_credentials",
+    "resolve_antigravity_oauth_client",
 ]

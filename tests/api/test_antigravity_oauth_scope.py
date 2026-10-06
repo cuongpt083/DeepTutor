@@ -36,8 +36,14 @@ class _Service:
         self.calls: list[Any] = []
         _Service.instances.append(self)
 
-    async def start_login(self, *, client_id: str, client_secret: str) -> dict[str, Any]:
-        self.calls.append(("start", client_id, client_secret))
+    async def start_login(
+        self,
+        *,
+        client_id: str,
+        client_secret: str,
+        client_secret_candidates: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        self.calls.append(("start", client_id, client_secret, client_secret_candidates))
         return {"status": "started"}
 
     def get_status(self) -> dict[str, Any]:
@@ -121,6 +127,10 @@ def test_non_admin_payload_credentials_are_rejected(client, monkeypatch) -> None
     test_client, _current = client
     monkeypatch.delenv("ANTIGRAVITY_CLIENT_ID", raising=False)
     monkeypatch.delenv("ANTIGRAVITY_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(
+        "deeptutor.services.antigravity_auth.client_credentials.discover_local_client_credentials",
+        lambda: None,
+    )
     _Service.instances.clear()
 
     response = test_client.post(
@@ -137,6 +147,10 @@ def test_admin_payload_credentials_are_accepted(client, tmp_path, monkeypatch) -
     current["user"] = _user("admin", role="admin", root=tmp_path / "admin")
     monkeypatch.delenv("ANTIGRAVITY_CLIENT_ID", raising=False)
     monkeypatch.delenv("ANTIGRAVITY_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(
+        "deeptutor.services.antigravity_auth.client_credentials.discover_local_client_credentials",
+        lambda: None,
+    )
     _Service.instances.clear()
 
     response = test_client.post(
@@ -145,7 +159,25 @@ def test_admin_payload_credentials_are_accepted(client, tmp_path, monkeypatch) -
     )
 
     assert response.status_code == 200
-    assert _Service.instances[-1].calls == [("start", "admin-id", "admin-secret")]
+    assert _Service.instances[-1].calls == [("start", "admin-id", "admin-secret", ())]
+
+
+def test_start_uses_local_install_when_env_missing(client, monkeypatch) -> None:
+    test_client, _current = client
+    monkeypatch.delenv("ANTIGRAVITY_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ANTIGRAVITY_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(
+        "deeptutor.services.antigravity_auth.client_credentials.discover_local_client_credentials",
+        lambda: ("local-id", ("local-secret", "alt-secret")),
+    )
+    _Service.instances.clear()
+
+    response = test_client.post("/api/settings/providers/google-antigravity/oauth/start")
+
+    assert response.status_code == 200
+    assert _Service.instances[-1].calls == [
+        ("start", "local-id", "local-secret", ("alt-secret",))
+    ]
 
 
 def test_antigravity_disabled_by_default_returns_403(client, monkeypatch) -> None:

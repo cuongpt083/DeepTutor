@@ -18,6 +18,7 @@ import {
   flattenModels,
   providerRegistry,
   reconcileRegistrySave,
+  stageRegistryAction,
 } from "@/lib/provider-registry";
 import { modelTestFingerprint } from "@/lib/model-settings";
 
@@ -49,6 +50,9 @@ vi.mock("@/components/settings/CodexOAuthCard", () => ({
 }));
 vi.mock("@/components/settings/CodeBuddyAuthCard", () => ({
   CodeBuddyAuthCard: () => <div>CodeBuddy sign-in</div>,
+}));
+vi.mock("@/components/settings/AntigravityOAuthCard", () => ({
+  AntigravityOAuthCard: () => <div>Antigravity sign-in</div>,
 }));
 function fixture(): Catalog {
   const services = Object.fromEntries(
@@ -138,7 +142,14 @@ function Harness({
     modelTests: {},
     testRunning: null,
     providers: {
-      llm: [{ value: "custom", label: "Custom", base_url: "" }],
+      llm: [
+        { value: "custom", label: "Custom", base_url: "" },
+        {
+          value: "google_antigravity",
+          label: "Google Antigravity",
+          auth_mode: "oauth",
+        },
+      ],
       task: [],
       embedding: [],
       search: [{ value: "tavily", label: "Tavily", requires_api_key: true }],
@@ -430,4 +441,80 @@ it("adds a provider over plain HTTP, where crypto.randomUUID does not exist", ()
   } finally {
     if (webCrypto) webCrypto.randomUUID = original;
   }
+});
+it("choosing Google Antigravity in Add provider creates Antigravity connection and displays OAuth card", () => {
+  render(<Harness page="providers" />);
+  fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
+  fireEvent.change(screen.getByLabelText("Provider type"), {
+    target: { value: "google_antigravity" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(screen.getByText("Antigravity sign-in")).toBeTruthy();
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  const conn = (mocks.settings.draft.connections ?? []).find(
+    (c) => c.provider === "google_antigravity",
+  );
+  expect(conn).toBeTruthy();
+});
+it("cascades connection deletion and cleans dangling active profile/model IDs", () => {
+  const cat = fixture();
+  cat.connections = [
+    {
+      id: "conn-123",
+      name: "Target",
+      provider: "custom",
+      api_key: "",
+      base_url: "",
+      api_version: "",
+    },
+  ];
+  cat.services.llm.profiles = [
+    {
+      id: "prof-1",
+      name: "Profile 1",
+      connection_id: "conn-123",
+      base_url: "",
+      api_key: "",
+      api_version: "",
+      models: [
+        {
+          id: "m-1",
+          name: "Model 1",
+          model: "custom/1",
+          provider_ref: { connection_id: "conn-123" },
+        },
+      ],
+    },
+    {
+      id: "prof-2",
+      name: "Profile 2",
+      base_url: "",
+      api_key: "",
+      api_version: "",
+      models: [{ id: "m-2", name: "Model 2", model: "openai/2" }],
+    },
+  ];
+  cat.services.llm.active_profile_id = "prof-1";
+  cat.services.llm.active_model_id = "m-1";
+
+  stageRegistryAction(cat, {
+    kind: "provider",
+    ref: { connection_id: "conn-123" },
+    delete: true,
+  });
+
+  expect(cat.connections?.length).toBe(0);
+  expect(cat.services.llm.profiles.length).toBe(1);
+  expect(cat.services.llm.active_profile_id).toBe("prof-2");
+  expect(cat.services.llm.active_model_id).toBe("m-2");
+});
+it("displays delete button on provider rail card and opens ConfirmDialog", () => {
+  render(<Harness page="providers" />);
+  const deleteBtn = screen.getByRole("button", {
+    name: /Delete provider My account/,
+  });
+  expect(deleteBtn).toBeTruthy();
+  fireEvent.click(deleteBtn);
+  expect(screen.getByRole("alertdialog")).toBeTruthy();
+  expect(screen.getByText("Delete provider?")).toBeTruthy();
 });

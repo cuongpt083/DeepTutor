@@ -18,6 +18,7 @@ import {
   providerProbeInput,
   updateProvider,
   REGISTRY_SERVICES,
+  type ProviderSource,
 } from "@/lib/provider-registry";
 import {
   EditableRegistryName,
@@ -29,6 +30,8 @@ import {
 } from "./RegistryControls";
 import { CodexOAuthCard } from "./CodexOAuthCard";
 import { CodeBuddyAuthCard } from "./CodeBuddyAuthCard";
+import { AntigravityOAuthCard } from "./AntigravityOAuthCard";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { selectClass, stringifyExtraHeaders, subPanelClass } from "./shared";
 import {
   WorkspaceDetailEmpty,
@@ -73,6 +76,21 @@ export function ProvidersWorkspace() {
   const [vendor, setVendor] = useState("");
   const [query, setQuery] = useState("");
   const [auth, setAuth] = useState("");
+  const [providerToDelete, setProviderToDelete] = useState<ProviderSource | null>(null);
+  const [deletingWorking, setDeletingWorking] = useState(false);
+
+  const confirmDeleteProvider = async (target: ProviderSource) => {
+    setDeletingWorking(true);
+    try {
+      await stageRegistry({ kind: "provider", ref: target.ref, delete: true });
+      if (selected === target.id) {
+        setSelected(null);
+      }
+    } finally {
+      setDeletingWorking(false);
+      setProviderToDelete(null);
+    }
+  };
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("provider");
     if (id && sources.some((p) => p.id === id))
@@ -106,6 +124,26 @@ export function ProvidersWorkspace() {
     if (option.value === "openai_codex") {
       setAuth("openai_codex");
       setAdding(false);
+      return;
+    }
+    if (option.value === "google_antigravity") {
+      const id = `conn-${randomUuid()}`;
+      const entry: CatalogConnection = {
+        id,
+        name: option.label,
+        provider: "google_antigravity",
+        source_service: option.service,
+        api_key: "",
+        base_url: "",
+        api_version: "",
+        api_format: "auto",
+      };
+      mutateCatalog((next) => {
+        (next.connections ??= []).push(entry);
+      });
+      setSelected(`connection:${id}`);
+      setAdding(false);
+      setAuth("");
       return;
     }
     const id = `conn-${randomUuid()}`;
@@ -196,30 +234,43 @@ export function ProvidersWorkspace() {
             {filtered.map((p) => {
               const editing = !adding && !auth && p.id === selected;
               return (
-                <button
-                  key={p.id}
-                  type="button"
-                  aria-pressed={editing}
-                  onClick={() => {
-                    setSelected(p.id);
-                    setAdding(false);
-                    setAuth("");
-                  }}
-                  className={workspaceCardClass(editing)}
-                >
-                  <span className="flex items-center gap-2">
-                    <ProviderIcon provider={p.provider} size={16} />
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">
-                      {p.name}
+                <div key={p.id} className="relative group">
+                  <button
+                    type="button"
+                    aria-pressed={editing}
+                    onClick={() => {
+                      setSelected(p.id);
+                      setAdding(false);
+                      setAuth("");
+                    }}
+                    className={`${workspaceCardClass(editing)} pr-8`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <ProviderIcon provider={p.provider} size={16} />
+                      <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">
+                        {p.name}
+                      </span>
                     </span>
-                  </span>
-                  <span className="mt-1 block pl-[24px] text-[11px] text-[var(--muted-foreground)]">
-                    {t("{{count}} configured models", {
-                      count: providerUsage(draft, p),
-                    })}
-                    {!savedIds.has(p.id) && ` · ${t("Not saved")}`}
-                  </span>
-                </button>
+                    <span className="mt-1 block pl-[24px] text-[11px] text-[var(--muted-foreground)]">
+                      {t("{{count}} configured models", {
+                        count: providerUsage(draft, p),
+                      })}
+                      {!savedIds.has(p.id) && ` · ${t("Not saved")}`}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    title={t("Delete provider")}
+                    aria-label={t("Delete provider {{name}}", { name: p.name })}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProviderToDelete(p);
+                    }}
+                    className="absolute right-2 top-3 rounded p-1 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-500 transition-opacity focus:opacity-100"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               );
             })}
           </WorkspaceRail>
@@ -239,6 +290,8 @@ export function ProvidersWorkspace() {
               />
             ) : auth === "openai_codex" ? (
               <CodexOAuthCard />
+            ) : auth === "google_antigravity" ? (
+              <AntigravityOAuthCard />
             ) : source && connection ? (
               <section
                 aria-label={t("Provider settings")}
@@ -264,6 +317,8 @@ export function ProvidersWorkspace() {
                 <div className="space-y-5 p-5">
                   {managed ? (
                     <CodexOAuthCard />
+                  ) : source.provider === "google_antigravity" ? (
+                    <AntigravityOAuthCard />
                   ) : (
                     <>
                       {source.provider === "codebuddy" && <CodeBuddyAuthCard />}
@@ -399,10 +454,7 @@ export function ProvidersWorkspace() {
                             )
                           : undefined
                       }
-                      onClick={async () => {
-                        await stageRegistry({ kind: "provider", ref: source.ref, delete: true });
-                        setSelected(null);
-                      }}
+                      onClick={() => setProviderToDelete(source)}
                       className={`${registryDanger} ml-auto`}
                     >
                       <Trash2 size={13} />
@@ -443,6 +495,28 @@ export function ProvidersWorkspace() {
           </div>
         }
       />
+
+      {providerToDelete && (
+        <ConfirmDialog
+          open
+          title={t("Delete provider?")}
+          tone="danger"
+          confirmLabel={t("Delete")}
+          busy={deletingWorking}
+          onConfirm={() => confirmDeleteProvider(providerToDelete)}
+          onCancel={() => setProviderToDelete(null)}
+        >
+          {providerUsage(draft, providerToDelete) > 0
+            ? t(
+                "This provider is currently referenced by {{count}} model(s). Deleting it will detach or remove those models. Do you wish to continue?",
+                { count: providerUsage(draft, providerToDelete) },
+              )
+            : t(
+                "Are you sure you want to delete \"{{name}}\"? This will remove its saved credentials.",
+                { name: providerToDelete.name },
+              )}
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

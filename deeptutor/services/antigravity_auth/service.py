@@ -47,6 +47,7 @@ class _ActiveLogin:
     callback: AntigravityLoopbackCallback | None
     client_id: str
     client_secret: str
+    client_secret_candidates: tuple[str, ...]
     deadline: float
     user_root: Path
 
@@ -83,6 +84,7 @@ class AntigravityAuthService:
         *,
         client_id: str,
         client_secret: str,
+        client_secret_candidates: tuple[str, ...] = (),
     ) -> dict[str, str]:
         global _CURRENT_LOGIN
 
@@ -123,6 +125,7 @@ class AntigravityAuthService:
                 callback=callback,
                 client_id=client_id,
                 client_secret=client_secret,
+                client_secret_candidates=tuple(client_secret_candidates),
                 deadline=deadline,
                 user_root=self.user_root,
             )
@@ -152,16 +155,14 @@ class AntigravityAuthService:
                 op = _CURRENT_LOGIN
                 _CURRENT_LOGIN = None
 
-            client = AntigravityOAuthClient(op.client_id, op.client_secret)
-            token = await client.exchange_code(
+            token, secret = await self._exchange_code(
+                op,
                 code=res.code,
-                redirect_uri=ANTIGRAVITY_REDIRECT_URI,
-                code_verifier=op.pkce.verifier,
             )
             creds = AntigravityCredentials(
                 token=token,
                 client_id=op.client_id,
-                client_secret=op.client_secret,
+                client_secret=secret,
                 project_id=token.project_id,
                 updated_at=time.time(),
             )
@@ -199,16 +200,11 @@ class AntigravityAuthService:
         if not oauth_state_matches(state, op.state_secret):
             raise AntigravityAuthError("state_mismatch", "OAuth state parameter mismatch.", 400)
 
-        client = AntigravityOAuthClient(op.client_id, op.client_secret)
-        token = await client.exchange_code(
-            code=code,
-            redirect_uri=ANTIGRAVITY_REDIRECT_URI,
-            code_verifier=op.pkce.verifier,
-        )
+        token, secret = await self._exchange_code(op, code=code)
         creds = AntigravityCredentials(
             token=token,
             client_id=op.client_id,
-            client_secret=op.client_secret,
+            client_secret=secret,
             project_id=token.project_id,
             updated_at=time.time(),
         )
@@ -218,6 +214,36 @@ class AntigravityAuthService:
             "email": token.email,
             "project_id": token.project_id,
         }
+
+    async def _exchange_code(
+        self,
+        op: _ActiveLogin,
+        *,
+        code: str,
+    ) -> tuple[AntigravityToken, str]:
+        secrets_to_try = (op.client_secret, *op.client_secret_candidates)
+        last_error: Exception | None = None
+        for secret in secrets_to_try:
+            if not secret:
+                continue
+            client = AntigravityOAuthClient(op.client_id, secret)
+            try:
+                token = await client.exchange_code(
+                    code=code,
+                    redirect_uri=ANTIGRAVITY_REDIRECT_URI,
+                    code_verifier=op.pkce.verifier,
+                )
+            except Exception as exc:
+                last_error = exc
+                continue
+            return token, secret
+        if last_error is not None:
+            raise last_error
+        raise AntigravityAuthError(
+            "missing_client_credentials",
+            "Google OAuth Client ID and Client Secret are required.",
+            400,
+        )
 
     async def get_valid_token(self) -> AntigravityToken:
         """Return valid token, refreshing if expired."""

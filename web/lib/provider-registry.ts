@@ -341,6 +341,23 @@ export function stageRegistryAction(catalog: Catalog, edit: RegistryEdit): void 
       const bucket = catalog.services[edit.ref.service];
       bucket.profiles = bucket.profiles.filter((p) => p.id !== edit.ref!.profile_id);
     }
+    // Also cascade remove or detach models/profiles referencing this deleted connection
+    if (edit.ref.connection_id) {
+      const connId = edit.ref.connection_id;
+      for (const service of REGISTRY_SERVICES) {
+        const bucket = catalog.services[service];
+        bucket.profiles = bucket.profiles.filter((p) => p.connection_id !== connId && p.provider_ref?.connection_id !== connId);
+        for (const p of bucket.profiles) {
+          p.models = p.models.filter((m) => m.provider_ref?.connection_id !== connId);
+        }
+        const candidates = bucket.profiles.filter((p) => !p.provider_only && (service === "search" || p.models.length));
+        const active = candidates.find((p) => p.id === bucket.active_profile_id) ?? candidates[0];
+        bucket.active_profile_id = active?.id ?? null;
+        if (!active?.models.some((m) => m.id === bucket.active_model_id)) {
+          bucket.active_model_id = active?.models[0]?.id ?? null;
+        }
+      }
+    }
     return;
   }
   if (!edit.service) return;
