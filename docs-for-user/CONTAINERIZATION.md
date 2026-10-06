@@ -449,6 +449,12 @@ set `ANTIGRAVITY_REDIRECT_URI` to the same value:
 https://YOUR_DOMAIN/api/settings/providers/google-antigravity/oauth/callback
 ```
 
+In-flight OAuth state is process-local. The image defaults to
+`BACKEND_WORKERS=1`. If you raise workers — in Docker or via
+`backend_workers` in system settings — Google's callback (paste or
+public HTTPS) can hit a different worker than `/oauth/start` and fail
+with no pending login. Keep one worker for this sign-in flow.
+
 ---
 
 ## PocketBase

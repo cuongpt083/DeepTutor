@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from deeptutor.services.antigravity_auth.contracts import (
+    AntigravityAuthError,
     AntigravityCredentials,
     AntigravityToken,
 )
@@ -127,6 +128,118 @@ async def test_start_login_skips_loopback_for_public_redirect(
     assert "tutor.example.com" in started["redirect_uri"]
     assert "redirect_uri=" in started["authorize_url"]
     auth_service_module._CURRENT_LOGIN = None
+
+
+def _fake_token() -> AntigravityToken:
+    return AntigravityToken(
+        access_token="ya29.test",
+        token_type="Bearer",
+        refresh_token="1//refresh",
+        expires_in=3600,
+        expires_at=time.time() + 3600,
+        scopes=("openid", "email"),
+        email="user@example.com",
+        project_id="test-proj",
+    )
+
+
+@pytest.mark.asyncio
+async def test_complete_login_stores_on_start_login_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    owner = tmp_path / "owner"
+    other = tmp_path / "other"
+    monkeypatch.setenv(
+        "ANTIGRAVITY_REDIRECT_URI",
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
+    )
+    exchanged: list[str] = []
+
+    async def fake_exchange(self: AntigravityAuthService, op: object, *, code: str):
+        exchanged.append(code)
+        return _fake_token(), "secret"
+
+    monkeypatch.setattr(AntigravityAuthService, "_exchange_code", fake_exchange)
+    auth_service_module._CURRENT_LOGIN = None
+    started = await AntigravityAuthService(owner).start_login(
+        client_id="id", client_secret="secret"
+    )
+    login = auth_service_module._CURRENT_LOGIN
+    assert login is not None
+    url = f"{started['redirect_uri']}?code=the-code&state={login.state_secret}"
+    result = await AntigravityAuthService(other).complete_login_url(url)
+    assert result["email"] == "user@example.com"
+    assert exchanged == ["the-code"]
+    assert AntigravityCredentialStore(owner).load_credentials() is not None
+    assert AntigravityCredentialStore(other).load_credentials() is None
+    assert not (other / "private").exists()
+    auth_service_module._CURRENT_LOGIN = None
+
+
+@pytest.mark.asyncio
+async def test_complete_login_rejects_state_mismatch_without_consuming(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(
+        "ANTIGRAVITY_REDIRECT_URI",
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
+    )
+
+    exchanged: list[str] = []
+
+    async def fake_exchange(self: AntigravityAuthService, op: object, *, code: str):
+        exchanged.append(code)
+        return _fake_token(), "secret"
+
+    monkeypatch.setattr(AntigravityAuthService, "_exchange_code", fake_exchange)
+    auth_service_module._CURRENT_LOGIN = None
+    owner = tmp_path / "owner"
+    started = await AntigravityAuthService(owner).start_login(
+        client_id="id", client_secret="secret"
+    )
+    login = auth_service_module._CURRENT_LOGIN
+    assert login is not None
+    with pytest.raises(AntigravityAuthError) as exc:
+        await AntigravityAuthService(tmp_path / "other").complete_login_url(
+            f"{started['redirect_uri']}?code=the-code&state=wrong-state-value"
+        )
+    assert exc.value.code == "state_mismatch"
+    assert auth_service_module._CURRENT_LOGIN is not None
+    assert exchanged == []
+    result = await AntigravityAuthService(tmp_path / "other").complete_login_url(
+        f"{started['redirect_uri']}?code=the-code&state={login.state_secret}"
+    )
+    assert result["email"] == "user@example.com"
+    assert exchanged == ["the-code"]
+    assert AntigravityCredentialStore(owner).load_credentials() is not None
+    auth_service_module._CURRENT_LOGIN = None
+
+
+@pytest.mark.asyncio
+async def test_complete_login_consumes_google_error_with_matching_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(
+        "ANTIGRAVITY_REDIRECT_URI",
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
+    )
+
+    async def boom(self: AntigravityAuthService, op: object, *, code: str):
+        raise AssertionError("token exchange must not run on Google error")
+
+    monkeypatch.setattr(AntigravityAuthService, "_exchange_code", boom)
+    auth_service_module._CURRENT_LOGIN = None
+    started = await AntigravityAuthService(tmp_path / "owner").start_login(
+        client_id="id", client_secret="secret"
+    )
+    login = auth_service_module._CURRENT_LOGIN
+    assert login is not None
+    with pytest.raises(AntigravityAuthError) as exc:
+        await AntigravityAuthService(tmp_path).complete_login_url(
+            f"{started['redirect_uri']}?error=access_denied&state={login.state_secret}"
+        )
+    assert exc.value.code == "oauth_error"
+    assert auth_service_module._CURRENT_LOGIN is None
 
 
 def test_service_status(tmp_path: Path) -> None:

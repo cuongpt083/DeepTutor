@@ -187,6 +187,14 @@ class AntigravityAuthService:
     async def complete_login_url(self, pasted_url: str) -> dict[str, Any]:
         """Support manual paste-callback for remote/containerized environments."""
         global _CURRENT_LOGIN
+        split = urlsplit(pasted_url.strip())
+        params = parse_qs(split.query)
+        code = params.get("code", [None])[0]
+        state = params.get("state", [None])[0]
+        error = params.get("error", [None])[0]
+
+        consume = False
+        failure: AntigravityAuthError | None = None
         async with _LOGIN_LOCK:
             if not _CURRENT_LOGIN:
                 raise AntigravityAuthError("no_active_login", "No pending login session.", 400)
@@ -194,23 +202,30 @@ class AntigravityAuthService:
                 _CURRENT_LOGIN = None
                 raise AntigravityAuthError("login_expired", "Login session expired.", 400)
             op = _CURRENT_LOGIN
-            _CURRENT_LOGIN = None
+            state_ok = oauth_state_matches(state, op.state_secret)
+            if error:
+                if state_ok:
+                    _CURRENT_LOGIN = None
+                    consume = True
+                failure = AntigravityAuthError(
+                    "oauth_error", f"Google returned error: {error}", 400
+                )
+            elif not code or not state:
+                failure = AntigravityAuthError(
+                    "invalid_callback", "Missing code or state in pasted URL.", 400
+                )
+            elif not state_ok:
+                failure = AntigravityAuthError(
+                    "state_mismatch", "OAuth state parameter mismatch.", 400
+                )
+            else:
+                _CURRENT_LOGIN = None
+                consume = True
 
-        if op.callback:
+        if consume and op.callback:
             await op.callback.close()
-
-        split = urlsplit(pasted_url.strip())
-        params = parse_qs(split.query)
-        code = params.get("code", [None])[0]
-        state = params.get("state", [None])[0]
-        error = params.get("error", [None])[0]
-
-        if error:
-            raise AntigravityAuthError("oauth_error", f"Google returned error: {error}", 400)
-        if not code or not state:
-            raise AntigravityAuthError("invalid_callback", "Missing code or state in pasted URL.", 400)
-        if not oauth_state_matches(state, op.state_secret):
-            raise AntigravityAuthError("state_mismatch", "OAuth state parameter mismatch.", 400)
+        if failure is not None:
+            raise failure
 
         token, secret = await self._exchange_code(op, code=code)
         creds = AntigravityCredentials(
