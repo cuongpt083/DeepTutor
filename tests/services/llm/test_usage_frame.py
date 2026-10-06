@@ -153,3 +153,30 @@ def test_breakdown_preserves_responses_reasoning_tokens() -> None:
         "total_tokens": 42,
         "reasoning_tokens": 9,
     }
+
+
+def test_usage_breakdown_gemini_cached_tokens() -> None:
+    from deeptutor.services.llm.usage_frame import usage_breakdown
+
+    # Native Gemini usage payload with cachedContentTokenCount
+    native_payload = {
+        "prompt_tokens": 1000,
+        "completion_tokens": 200,
+        "total_tokens": 1200,
+        "cachedContentTokenCount": 800,
+    }
+    b1 = usage_breakdown(native_payload)
+    assert b1["prompt_tokens"] == 1000
+    assert b1["completion_tokens"] == 200
+    assert b1["cache_read_input_tokens"] == 800
+
+    # OpenAI-compat shape with cached_content_token_count
+    compat_payload = {
+        "prompt_tokens": 500,
+        "completion_tokens": 50,
+        "total_tokens": 550,
+        "cached_content_token_count": 400,
+    }
+    b2 = usage_breakdown(compat_payload)
+    assert b2["prompt_tokens"] == 500
+    assert b2["cache_read_input_tokens"] == 400

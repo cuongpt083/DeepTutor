@@ -68,16 +68,31 @@ def token_counts(
     prompt_tokens = _as_int(frame.get(prompt))
     completion_tokens = _as_int(frame.get(completion))
     total_tokens = _as_int(frame.get(total)) or prompt_tokens + completion_tokens
-    cache_read = _as_int(frame.get("cache_read_tokens") or frame.get("cache_read_input_tokens"))
+    cache_read = _as_int(
+        frame.get("cache_read_tokens")
+        or frame.get("cache_read_input_tokens")
+        or frame.get("cached_content_token_count")
+        or frame.get("cachedContentTokenCount")
+    )
     cache_creation = _as_int(
         frame.get("cache_creation_tokens") or frame.get("cache_creation_input_tokens")
     )
     if not cache_read:
         details = frame.get("prompt_tokens_details")
         if isinstance(details, Mapping):
-            cache_read = _as_int(details.get("cached_tokens"))
+            cache_read = _as_int(
+                details.get("cached_tokens")
+                or details.get("cached_content_token_count")
+                or details.get("cachedContentTokenCount")
+            )
         else:
-            cache_read = _as_int(getattr(details, "cached_tokens", 0) if details is not None else 0)
+            cache_read = _as_int(
+                getattr(details, "cached_tokens", 0)
+                or getattr(details, "cached_content_token_count", 0)
+                or getattr(details, "cachedContentTokenCount", 0)
+                if details is not None
+                else 0
+            )
     if not (prompt_tokens or completion_tokens or total_tokens or cache_read or cache_creation):
         return {}
     counts = {
@@ -127,6 +142,7 @@ def usage_breakdown(
             "prompt_cache_hit_tokens",
             "prompt_cache_miss_tokens",
             "cached_content_token_count",
+            "cachedContentTokenCount",
         ),
     )
     if prompt not in frame and "input_tokens" in frame:
@@ -149,6 +165,7 @@ def usage_breakdown(
         "cached_tokens",
         "prompt_cache_hit_tokens",
         "cached_content_token_count",
+        "cachedContentTokenCount",
     ):
         if frame.get(key) is not None:
             cached = frame[key]

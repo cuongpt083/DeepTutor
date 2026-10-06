@@ -639,15 +639,27 @@ class ContextBuilder:
         )
 
 
-def _session_cache_is_warm(session: dict[str, Any]) -> bool:
+def _session_cache_is_warm(
+    session: dict[str, Any],
+    *,
+    model: str | None = None,
+    binding: str | None = None,
+    provider_name: str | None = None,
+) -> bool:
     """True when the last session write is still inside the provider cache TTL."""
-    from deeptutor.services.llm.prompt_cache import PROMPT_CACHE_TTL_SECONDS
+    from deeptutor.services.llm.prompt_cache import (
+        PROMPT_CACHE_TTL_SECONDS,
+        resolve_cache_ttl_policy,
+    )
 
     try:
         stamp = float(session.get("updated_at"))
     except (TypeError, ValueError):
         return False
-    return (time.time() - stamp) < PROMPT_CACHE_TTL_SECONDS
+
+    policy = resolve_cache_ttl_policy(model, binding, provider_name)
+    ttl = policy.ttl_s if policy else PROMPT_CACHE_TTL_SECONDS
+    return (time.time() - stamp) < ttl
 
 
 __all__ = [

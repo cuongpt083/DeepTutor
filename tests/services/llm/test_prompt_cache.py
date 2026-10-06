@@ -130,3 +130,86 @@ def test_turn_usage_summary_includes_cache_write_reported_calls() -> None:
     assert summary["cache_reported_calls"] == 1
     assert summary["cache_write_reported_calls"] == 1
 
+
+
+def test_resolve_cache_ttl_policy_claude() -> None:
+    from deeptutor.services.llm.prompt_cache import resolve_cache_ttl_policy, supports_ttl1h
+
+    assert supports_ttl1h("anthropic", "anthropic")
+    assert not supports_ttl1h("anthropic-oauth", "anthropic-oauth")
+    assert not supports_ttl1h("openrouter", "openrouter")
+
+    # Short retention default: 300s
+    policy_short = resolve_cache_ttl_policy("claude-sonnet-4", "anthropic", "anthropic")
+    assert policy_short is not None
+    assert policy_short.ttl_s == 300.0
+    assert policy_short.ping_cap == 6
+    assert policy_short.guaranteed is True
+
+    # Long retention with direct anthropic: 3600s
+    policy_long = resolve_cache_ttl_policy(
+        "claude-sonnet-4", "anthropic", "anthropic", retention="long"
+    )
+    assert policy_long is not None
+    assert policy_long.ttl_s == 3600.0
+
+    # Long retention with non-direct anthropic (e.g. oauth or openrouter) remains 300s
+    policy_oauth = resolve_cache_ttl_policy(
+        "claude-sonnet-4", "anthropic-oauth", "anthropic-oauth", retention="long"
+    )
+    assert policy_oauth is not None
+    assert policy_oauth.ttl_s == 300.0
+    assert policy_oauth.guaranteed is False
+
+
+def test_resolve_cache_ttl_policy_other_families() -> None:
+    from deeptutor.services.llm.prompt_cache import resolve_cache_ttl_policy
+
+    # OpenAI
+    p_openai = resolve_cache_ttl_policy("gpt-5", "openai", "openai")
+    assert p_openai is not None
+    assert p_openai.ttl_s == 300.0
+    assert p_openai.lead_s == 60.0
+    assert p_openai.ping_cap == 4
+
+    # Gemini / Antigravity
+    p_gemini = resolve_cache_ttl_policy("gemini-2.5-flash", "gemini", "gemini")
+    assert p_gemini is not None
+    assert p_gemini.ttl_s == 240.0
+    assert p_gemini.lead_s == 45.0
+    assert p_gemini.ping_cap == 2
+
+    p_anti = resolve_cache_ttl_policy("google-antigravity/gemini-3-pro", "antigravity", "google_antigravity")
+    assert p_anti is not None
+    assert p_anti.ttl_s == 240.0
+
+    # xAI / Grok
+    p_grok = resolve_cache_ttl_policy("grok-3", "xai", "xai")
+    assert p_grok is not None
+    assert p_grok.ttl_s == 240.0
+
+
+def test_mark_anthropic_payload_with_custom_ttl() -> None:
+    system = [{"type": "text", "text": "SYS"}]
+    messages = [
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u2"},
+    ]
+    marked_sys, marked_msgs, _ = mark_anthropic_payload(system, messages, None, cache_ttl="1h")
+    assert marked_sys[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert marked_msgs[-2]["content"][-1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+
+def test_cache_price_multipliers_with_1h() -> None:
+    read_std, write_std = cache_price_multipliers("claude-sonnet-4")
+    assert read_std == 0.1
+    assert write_std == 1.25
+
+    read_1h, write_1h = cache_price_multipliers("claude-sonnet-4", ttl="1h")
+    assert read_1h == 0.1
+    assert write_1h == 2.0
+
+    read_1h_sec, write_1h_sec = cache_price_multipliers("claude-sonnet-4", ttl_s=3600.0)
+    assert read_1h_sec == 0.1
+    assert write_1h_sec == 2.0
