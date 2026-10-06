@@ -70,13 +70,12 @@ def _build_runtime_provider(
 
         provider: LLMProvider = OpenAICodexProvider(default_model=llm_config.model)
     elif backend == "antigravity":
-        from pathlib import Path
+        from deeptutor.multi_user.paths import get_owner_secrets_dir
         from deeptutor.services.antigravity_auth.service import AntigravityAuthService
         from deeptutor.services.llm.provider_core.antigravity_provider import AntigravityProvider
-        from deeptutor.services.path_service import get_user_data_dir
 
-        user_root = get_user_data_dir()
-        auth_service = AntigravityAuthService(user_root)
+        owner_secrets = get_owner_secrets_dir()
+        auth_service = AntigravityAuthService(owner_secrets)
         provider = AntigravityProvider(
             token_getter=auth_service.get_valid_token,
             default_model=llm_config.model,
