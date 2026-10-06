@@ -28,10 +28,17 @@ def _secret_fingerprint(value: str | list[str] | None) -> str:
 
 def _provider_cache_key(config: LLMConfig, loop: asyncio.AbstractEventLoop) -> tuple[Any, ...]:
     headers = json.dumps(config.extra_headers or {}, sort_keys=True, separators=(",", ":"))
-    owner_id = getattr(config, "owner_id", None) or getattr(config, "user_id", None) or ""
+    backend = config.provider_name or config.binding or ""
+    owner_scope = ""
+    if "antigravity" in backend or "codex" in backend:
+        try:
+            from deeptutor.multi_user.paths import get_owner_secrets_dir
+            owner_scope = str(get_owner_secrets_dir())
+        except Exception:
+            owner_scope = ""
     return (
         loop,
-        owner_id,
+        owner_scope,
         config.provider_name or config.binding,
         config.provider_mode,
         config.model,

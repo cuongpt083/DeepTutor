@@ -2200,15 +2200,19 @@ class AntigravityCallbackPayload(BaseModel):
 
 
 @router.post("/providers/google-antigravity/oauth/start")
-async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload) -> dict[str, Any]:
+async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload | None = None) -> dict[str, Any]:
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+    import os
+
+    client_id = (payload.client_id if payload else "") or os.environ.get("ANTIGRAVITY_CLIENT_ID", "")
+    client_secret = (payload.client_secret if payload else "") or os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "")
 
     service = AntigravityAuthService(get_owner_secrets_dir())
     try:
         return await service.start_login(
-            client_id=payload.client_id,
-            client_secret=payload.client_secret,
+            client_id=client_id,
+            client_secret=client_secret,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

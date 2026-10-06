@@ -118,3 +118,37 @@ async def test_antigravity_stream_chat_parsing(monkeypatch: pytest.MonkeyPatch) 
     assert resp.usage["cachedContentTokenCount"] == 30
     assert deltas == ["Hello world"]
     assert reasoning == ["let me think"]
+
+
+@pytest.mark.asyncio
+async def test_antigravity_gemini3_thought_signature_roundtrip() -> None:
+    provider = AntigravityProvider(token_getter=lambda: "dummy")
+    
+    # 1. Simulate tool call with thoughtSignature from SSE
+    tool_call = {
+        "id": "tc-1",
+        "type": "function",
+        "function": {"name": "search", "arguments": json.dumps({"q": "test"})},
+    }
+    messages = [
+        {"role": "user", "content": "search test"},
+        {"role": "assistant", "content": "", "tool_calls": [tool_call]},
+        {"role": "tool", "name": "search", "tool_call_id": "tc-1", "content": "result 1"},
+    ]
+    sys_inst, contents = provider._convert_messages(messages, "gemini-3-pro-low")
+    
+    assert len(contents) == 3
+    # Model turn must carry thoughtSignature for Gemini 3
+    model_turn = contents[1]
+    assert model_turn["role"] == "model"
+    fc = model_turn["parts"][0]
+    assert "functionCall" in fc
+    assert fc.get("thoughtSignature") == "skip_thought_signature_validator"
+    
+    # Tool response must be role "user" with "functionResponse"
+    tool_turn = contents[2]
+    assert tool_turn["role"] == "user"
+    fr = tool_turn["parts"][0]
+    assert "functionResponse" in fr
+    assert fr["functionResponse"]["name"] == "search"
+    assert fr["functionResponse"]["response"] == {"response": "result 1"}
