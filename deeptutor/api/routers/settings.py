@@ -2201,6 +2201,7 @@ class AntigravityCallbackPayload(BaseModel):
 
 @router.post("/providers/google-antigravity/oauth/start")
 async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload | None = None) -> dict[str, Any]:
+    _require_codex_oauth_actor()
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
     import os
@@ -2230,6 +2231,7 @@ async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload |
 
 @router.get("/providers/google-antigravity/oauth/status")
 async def get_google_antigravity_oauth_status() -> dict[str, Any]:
+    _require_codex_oauth_actor()
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
@@ -2239,6 +2241,7 @@ async def get_google_antigravity_oauth_status() -> dict[str, Any]:
 
 @router.post("/providers/google-antigravity/oauth/complete")
 async def complete_google_antigravity_oauth(payload: AntigravityCallbackPayload) -> dict[str, Any]:
+    _require_codex_oauth_actor()
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
@@ -2251,6 +2254,7 @@ async def complete_google_antigravity_oauth(payload: AntigravityCallbackPayload)
 
 @router.post("/providers/google-antigravity/oauth/disconnect")
 async def disconnect_google_antigravity_oauth() -> dict[str, Any]:
+    _require_codex_oauth_actor()
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
