@@ -35,6 +35,7 @@ from deeptutor.services.config.model_catalog import ModelCatalogService
 from .paths import get_owner_path_service
 
 _CODEX_MANAGED_BY = "openai_codex_oauth"
+_ANTIGRAVITY_MANAGED_BY = "google_antigravity_oauth"
 
 
 def _codex_profile_is_current(profile: dict[str, Any]) -> bool:
@@ -44,6 +45,18 @@ def _codex_profile_is_current(profile: dict[str, Any]) -> bool:
         return get_codex_oauth_service().profile_matches_current_account(profile)
     except Exception:
         return False
+
+
+def _antigravity_profile_is_current(profile: dict[str, Any]) -> bool:
+    try:
+        from deeptutor.multi_user.paths import get_owner_secrets_dir
+        from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+
+        service = AntigravityAuthService(get_owner_secrets_dir())
+        return service.store.has_credentials()
+    except Exception:
+        return False
+
 
 
 def owner_catalog_service() -> ModelCatalogService:
@@ -84,8 +97,15 @@ def _personal_catalog_profiles() -> list[dict[str, Any]]:
         for profile in profiles
         if isinstance(profile, dict)
         and is_owner_bound(profile)
-        and (profile.get("managed_by") != _CODEX_MANAGED_BY or _codex_profile_is_current(profile))
+        and (
+            (profile.get("managed_by") != _CODEX_MANAGED_BY or _codex_profile_is_current(profile))
+            and (
+                profile.get("managed_by") != _ANTIGRAVITY_MANAGED_BY
+                or _antigravity_profile_is_current(profile)
+            )
+        )
     ]
+
 
 
 def personal_llm_rows() -> list[dict[str, Any]]:

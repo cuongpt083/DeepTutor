@@ -127,10 +127,13 @@ def test_a_codebuddy_profile_is_owner_bound_by_its_binding() -> None:
     """
     assert model_access.is_owner_bound({"binding": "codebuddy"}) is True
     assert model_access.is_owner_bound({"binding": "CodeBuddy"}) is True
+    assert model_access.is_owner_bound({"binding": "antigravity"}) is True
+    assert model_access.is_owner_bound({"binding": "google_antigravity"}) is True
     # An ordinary team key stays grantable.
     assert model_access.is_owner_bound({"binding": "openai"}) is False
     # The explicit flag still wins for anything else that sets it.
     assert model_access.is_owner_bound({"binding": "openai", "owner_bound": True}) is True
+
 
 
 def test_individual_provider_references_keep_subscription_models_private(tmp_path, monkeypatch):

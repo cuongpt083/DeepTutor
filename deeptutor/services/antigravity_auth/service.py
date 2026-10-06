@@ -254,7 +254,13 @@ class AntigravityAuthService:
             updated_at=time.time(),
         )
         AntigravityCredentialStore(op.user_root).store_credentials(creds)
+        try:
+            from deeptutor.multi_user.personal_models import owner_catalog_service
+            sync_antigravity_catalog(owner_catalog_service())
+        except Exception as exc:
+            logger.warning("Could not sync Antigravity profile to model catalog: %s", exc)
         return {
+
             "status": "success",
             "email": token.email,
             "project_id": token.project_id,
@@ -320,3 +326,79 @@ class AntigravityAuthService:
 
     def disconnect(self) -> None:
         self.store.clear()
+        try:
+            from deeptutor.multi_user.personal_models import owner_catalog_service
+            remove_antigravity_catalog(owner_catalog_service())
+        except Exception as exc:
+            logger.warning("Could not remove Antigravity profile from model catalog: %s", exc)
+
+
+def sync_antigravity_catalog(catalog_service: Any) -> dict[str, Any]:
+    """Publish the managed Antigravity profile into the owner's model catalog."""
+    def mutate(catalog: dict[str, Any]) -> None:
+        llm = catalog.setdefault("services", {}).setdefault("llm", {})
+        profiles = llm.setdefault("profiles", [])
+        
+        managed_models = [
+            {
+                "id": model.id,
+                "name": model.label,
+                "model": model.id,
+                "managed_by": MANAGED_BY,
+                "context_window": str(model.context_window),
+                "context_window_source": "metadata",
+                "capabilities": {
+                    "reasoning": model.supports_reasoning,
+                    "vision": True,
+                },
+            }
+            for model in ANTIGRAVITY_MODELS
+        ]
+        
+        managed_profile = {
+            "id": ANTIGRAVITY_PROFILE_ID,
+            "name": "Google Antigravity",
+            "binding": "google_antigravity",
+            "base_url": "https://daily-cloudcode-pa.googleapis.com",
+            "api_key": "",
+            "api_version": "",
+            "extra_headers": {},
+            "managed_by": MANAGED_BY,
+            "read_only": True,
+            "owner_bound": True,
+            "models": managed_models,
+        }
+        
+        existing_index = next(
+            (i for i, p in enumerate(profiles) if isinstance(p, dict) and p.get("managed_by") == MANAGED_BY),
+            None,
+        )
+        if existing_index is not None:
+            profiles[existing_index] = managed_profile
+        else:
+            profiles.append(managed_profile)
+            
+        if not llm.get("active_profile_id"):
+            llm["active_profile_id"] = ANTIGRAVITY_PROFILE_ID
+            llm["active_model_id"] = managed_models[0]["id"]
+
+    return catalog_service.update(mutate)
+
+
+def remove_antigravity_catalog(catalog_service: Any) -> dict[str, Any]:
+    """Drop the managed Antigravity profile from the model catalog."""
+    def mutate(catalog: dict[str, Any]) -> None:
+        llm = catalog.get("services", {}).get("llm", {})
+        current_is_managed = llm.get("active_profile_id") == ANTIGRAVITY_PROFILE_ID
+        profiles = llm.get("profiles", [])
+        if isinstance(profiles, list):
+            llm["profiles"] = [
+                p for p in profiles if not (isinstance(p, dict) and p.get("managed_by") == MANAGED_BY)
+            ]
+        if current_is_managed:
+            llm["active_profile_id"] = None
+            llm["active_model_id"] = None
+
+    return catalog_service.update(mutate)
+
+

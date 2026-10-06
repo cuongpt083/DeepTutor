@@ -26,6 +26,8 @@ import {
   reasoningEffortOptionsFromSupportedLevels,
 } from "@/lib/reasoning-effort";
 import { CodexOAuthCard } from "./CodexOAuthCard";
+import { AntigravityOAuthCard } from "./AntigravityOAuthCard";
+
 import { CodeBuddyAuthCard } from "./CodeBuddyAuthCard";
 import {
   isBoundManagedCodexProfile,
@@ -517,12 +519,17 @@ export function ServiceConfigEditor({
             "Model endpoints are assigned by your administrator. You can still personalize theme and language here.",
           )}
         </div>
-        {/* One thing an ordinary user CAN configure for themselves: an
-            owner-bound Codex login. It authenticates their own ChatGPT plan,
-            so it is never something an administrator can grant them — the
-            account has to sign in for itself (#781). The card talks only to
-            the per-user OAuth endpoints and exposes no catalog. */}
-        {service === "llm" && <CodexOAuthCard />}
+        {/* Accounts can configure owner-bound logins (Codex, Antigravity).
+            They authenticate personal subscription plans, so they are never
+            something an administrator grants — the account signs in for itself.
+            The cards talk only to per-user OAuth endpoints and expose no catalog. */}
+        {service === "llm" && (
+          <>
+            <CodexOAuthCard />
+            <AntigravityOAuthCard />
+          </>
+        )}
+
       </div>
     );
   }
