@@ -164,6 +164,9 @@ def wants_cache_control(model: str | None, binding: str | None = None) -> bool:
     gateways that document the same marker; Google's own OpenAI-compat
     endpoint does not.
     """
+    bind = (binding or "").strip().lower()
+    if bind in {"antigravity", "google_antigravity"} or (model and "google-antigravity" in model):
+        return False
     family = cache_family(model)
     name = (binding or "").strip().lower()
     if family == "claude":
@@ -175,6 +178,8 @@ def wants_cache_control(model: str | None, binding: str | None = None) -> bool:
 
 def wants_prompt_cache_key(binding: str | None, model: str | None) -> bool:
     name = (binding or "").strip().lower()
+    if name in {"antigravity", "google_antigravity"} or (model and "google-antigravity" in model):
+        return False
     if name in _NATIVE_NO_PROMPT_CACHE_KEY:
         return False
     if cache_family(model) == "openai":

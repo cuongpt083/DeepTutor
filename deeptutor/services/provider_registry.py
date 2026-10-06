@@ -103,7 +103,7 @@ class ProviderSpec:
         Anthropic Messages when the vendor is known to serve it too or when
         the endpoint is user-supplied and could be anything.
         """
-        if self.is_oauth or self.backend in {"azure_openai", "openai_codex", "github_copilot"}:
+        if self.is_oauth or self.backend in {"azure_openai", "openai_codex", "github_copilot", "antigravity"}:
             return ()
         if self.backend == "anthropic":
             return ("anthropic",)
@@ -147,6 +147,8 @@ PROVIDER_ALIASES = {
     "codebuddy-code": "codebuddy",
     "codebuddy_code": "codebuddy",
     "workbuddy": "codebuddy",
+    "google-antigravity": "google_antigravity",
+    "antigravity": "google_antigravity",
     "lm-studio": "lm_studio",
     "atlas": "atlascloud",
     "atlas_cloud": "atlascloud",
@@ -338,6 +340,15 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="openai_compat",
         default_api_base="https://api.openai.com/v1",
         supports_max_completion_tokens=True,
+    ),
+    ProviderSpec(
+        name="google_antigravity",
+        keywords=("google-antigravity", "antigravity"),
+        env_key="",
+        display_name="Google Antigravity",
+        backend="antigravity",
+        is_oauth=True,
+        default_api_base="https://daily-cloudcode-pa.googleapis.com",
     ),
     ProviderSpec(
         name="openai_codex",

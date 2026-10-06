@@ -213,3 +213,12 @@ def test_cache_price_multipliers_with_1h() -> None:
     read_1h_sec, write_1h_sec = cache_price_multipliers("claude-sonnet-4", ttl_s=3600.0)
     assert read_1h_sec == 0.1
     assert write_1h_sec == 2.0
+
+
+def test_google_antigravity_skips_cache_control_and_routing_key() -> None:
+    # Even if model name contains claude or gpt, google-antigravity must not attach cache_control or prompt_cache_key
+    assert not wants_cache_control("google-antigravity/claude-3-5-sonnet", "google_antigravity")
+    assert not wants_cache_control("google-antigravity/gemini-3-pro", "antigravity")
+
+    assert not wants_prompt_cache_key("google_antigravity", "google-antigravity/gemini-3-pro")
+    assert not wants_prompt_cache_key("antigravity", "google-antigravity/gpt-4o")

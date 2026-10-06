@@ -28,8 +28,10 @@ def _secret_fingerprint(value: str | list[str] | None) -> str:
 
 def _provider_cache_key(config: LLMConfig, loop: asyncio.AbstractEventLoop) -> tuple[Any, ...]:
     headers = json.dumps(config.extra_headers or {}, sort_keys=True, separators=(",", ":"))
+    owner_id = getattr(config, "owner_id", None) or getattr(config, "user_id", None) or ""
     return (
         loop,
+        owner_id,
         config.provider_name or config.binding,
         config.provider_mode,
         config.model,
@@ -67,6 +69,18 @@ def _build_runtime_provider(
         )
 
         provider: LLMProvider = OpenAICodexProvider(default_model=llm_config.model)
+    elif backend == "antigravity":
+        from pathlib import Path
+        from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+        from deeptutor.services.llm.provider_core.antigravity_provider import AntigravityProvider
+        from deeptutor.services.path_service import get_user_data_dir
+
+        user_root = get_user_data_dir()
+        auth_service = AntigravityAuthService(user_root)
+        provider = AntigravityProvider(
+            token_getter=auth_service.get_valid_token,
+            default_model=llm_config.model,
+        )
     elif backend == "github_copilot":
         from deeptutor.services.llm.provider_core.github_copilot_provider import (
             GitHubCopilotProvider,
