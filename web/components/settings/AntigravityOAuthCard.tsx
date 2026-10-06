@@ -254,7 +254,14 @@ export function AntigravityOAuthCard() {
                 <span>{t("Waiting for authorization in browser...")}</span>
               </div>
               <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
-                {t("Complete sign-in in the opened browser window. If redirecting to localhost does not work (e.g. remote server or Docker), paste the full redirected callback address below:")}
+                {(loginStart.loopback ??
+                  /localhost|127\.0\.0\.1/i.test(loginStart.redirect_uri))
+                  ? t(
+                      "Firefox cannot connect to localhost:51121. That is expected on a remote host or HTTPS reverse proxy. Copy the full address bar URL (it starts with http://localhost:51121/oauth-callback?code=) and paste it below. Do not close that tab first.",
+                    )
+                  : t(
+                      "After Google redirects, this page will finish sign-in automatically. If it does not, paste the callback URL below.",
+                    )}
               </p>
               <div className="flex items-center gap-2">
                 <a

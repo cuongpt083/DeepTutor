@@ -91,6 +91,7 @@ def test_compose_files_pass_antigravity_oauth_client_env() -> None:
         assert "ANTIGRAVITY_CLIENT_ID=${ANTIGRAVITY_CLIENT_ID:-}" in content, name
         assert "ANTIGRAVITY_CLIENT_SECRET=${ANTIGRAVITY_CLIENT_SECRET:-}" in content, name
         assert "ANTIGRAVITY_AGY_PATH=${ANTIGRAVITY_AGY_PATH:-}" in content, name
+        assert "ANTIGRAVITY_REDIRECT_URI=${ANTIGRAVITY_REDIRECT_URI:-}" in content, name
 
 
 def test_compose_files_do_not_consume_legacy_env_names() -> None:

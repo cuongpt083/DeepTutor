@@ -11,13 +11,14 @@ import asyncio
 from collections.abc import Iterator
 import contextlib
 from copy import deepcopy
+import html
 import json
 import logging
 import time
 from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -2248,6 +2249,52 @@ def _antigravity_oauth_client(payload: AntigravityLoginStartPayload | None):
             ),
         )
     return resolved
+
+
+def _antigravity_callback_html(body: str, *, status_code: int = 200) -> HTMLResponse:
+    safe = html.escape(body, quote=True)
+    return HTMLResponse(
+        (
+            "<!doctype html><title>DeepTutor Antigravity</title>"
+            "<body style='font-family:sans-serif;text-align:center;padding:40px'>"
+            f"<h2>{safe}</h2><p>Return to DeepTutor.</p></body>"
+        ),
+        status_code=status_code,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@public_router.get("/providers/google-antigravity/oauth/callback")
+async def receive_google_antigravity_oauth_callback(request: Request) -> HTMLResponse:
+    """Browser landing page for a public HTTPS redirect_uri (reverse proxy)."""
+    import os
+
+    from deeptutor.services.antigravity_auth.contracts import AntigravityAuthError
+    from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+
+    env_val = os.environ.get("ANTIGRAVITY_ENABLED", "").strip().lower()
+    if env_val not in {"1", "true", "yes", "on"}:
+        return _antigravity_callback_html(
+            "Google Antigravity provider is currently disabled.",
+            status_code=403,
+        )
+    try:
+        from pathlib import Path
+
+        # No session on this public GET; complete_login_url stores against the
+        # in-flight login's user_root, so the constructor path is unused.
+        result = await AntigravityAuthService(Path(".")).complete_login_url(
+            str(request.url)
+        )
+    except AntigravityAuthError as exc:
+        return _antigravity_callback_html(exc.message, status_code=exc.status_code)
+    except Exception as exc:
+        return _antigravity_callback_html(str(exc), status_code=400)
+    email = result.get("email") or ""
+    suffix = f" Signed in as {email}." if email else ""
+    return _antigravity_callback_html(
+        f"Google Antigravity authentication successful.{suffix} You can close this tab."
+    )
 
 
 @router.post("/providers/google-antigravity/oauth/start")

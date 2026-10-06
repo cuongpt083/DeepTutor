@@ -189,3 +189,57 @@ def test_antigravity_disabled_by_default_returns_403(client, monkeypatch) -> Non
         response = fn(path) if method == "get" or body is None else fn(path, json=body)
         assert response.status_code == 403, (path, response.status_code)
         assert "disabled" in response.text
+
+
+PUBLIC_CALLBACK = "/api/settings/providers/google-antigravity/oauth/callback"
+
+
+@pytest.fixture
+def public_client(tmp_path, monkeypatch) -> TestClient:
+    _Service.instances.clear()
+    monkeypatch.setattr(
+        "deeptutor.services.antigravity_auth.service.AntigravityAuthService",
+        _Service,
+    )
+    app = FastAPI()
+    app.include_router(settings_router.public_router, prefix="/api/settings")
+    return TestClient(app)
+
+
+def test_public_callback_completes_without_auth(public_client) -> None:
+    response = public_client.get(
+        PUBLIC_CALLBACK,
+        params={"code": "abc", "state": "s"},
+    )
+    assert response.status_code == 200
+    assert "successful" in response.text
+    assert "<script" not in response.text.lower()
+    assert _Service.instances[-1].calls
+    kind, pasted = _Service.instances[-1].calls[-1]
+    assert kind == "complete"
+    assert "code=abc" in pasted
+
+
+def test_public_callback_disabled_returns_403(public_client, monkeypatch) -> None:
+    monkeypatch.delenv("ANTIGRAVITY_ENABLED", raising=False)
+    response = public_client.get(PUBLIC_CALLBACK, params={"code": "abc"})
+    assert response.status_code == 403
+    assert "disabled" in response.text
+    assert _Service.instances == []
+
+
+def test_public_callback_escapes_error_html(public_client, monkeypatch) -> None:
+    from deeptutor.services.antigravity_auth.contracts import AntigravityAuthError
+
+    async def boom(self, pasted_url: str) -> dict[str, Any]:
+        raise AntigravityAuthError(
+            "oauth_error",
+            'Google returned error: <script>alert(1)</script>',
+            400,
+        )
+
+    monkeypatch.setattr(_Service, "complete_login_url", boom)
+    response = public_client.get(PUBLIC_CALLBACK, params={"error": "<script>"})
+    assert response.status_code == 400
+    assert "<script>alert(1)</script>" not in response.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text

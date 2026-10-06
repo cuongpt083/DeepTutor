@@ -12,6 +12,7 @@ export type AntigravityLoginStart = {
   operation_id: string;
   authorize_url: string;
   redirect_uri: string;
+  loopback?: boolean;
 };
 
 export class AntigravityOAuthApiError extends Error {

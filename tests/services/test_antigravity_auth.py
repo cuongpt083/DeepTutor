@@ -16,6 +16,12 @@ from deeptutor.services.antigravity_auth.oauth import (
     oauth_state_matches,
     build_authorize_url,
 )
+from deeptutor.services.antigravity_auth import service as auth_service_module
+from deeptutor.services.antigravity_auth.constants import (
+    ANTIGRAVITY_REDIRECT_URI,
+    is_loopback_redirect_uri,
+    resolve_antigravity_redirect_uri,
+)
 from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
 
@@ -77,6 +83,50 @@ def test_credential_store(tmp_path: Path) -> None:
 
     store.clear()
     assert store.load_credentials() is None
+
+
+def test_resolve_redirect_uri_defaults_to_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTIGRAVITY_REDIRECT_URI", raising=False)
+    assert resolve_antigravity_redirect_uri() == ANTIGRAVITY_REDIRECT_URI
+    assert is_loopback_redirect_uri(ANTIGRAVITY_REDIRECT_URI)
+    assert is_loopback_redirect_uri("http://127.0.0.1:51121/oauth-callback")
+    assert not is_loopback_redirect_uri(
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback"
+    )
+
+
+def test_resolve_redirect_uri_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "ANTIGRAVITY_REDIRECT_URI",
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
+    )
+    assert resolve_antigravity_redirect_uri().startswith("https://tutor.example.com")
+
+
+@pytest.mark.asyncio
+async def test_start_login_skips_loopback_for_public_redirect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(
+        "ANTIGRAVITY_REDIRECT_URI",
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
+    )
+
+    async def boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("loopback must not start for a public redirect")
+
+    monkeypatch.setattr(
+        "deeptutor.services.antigravity_auth.service.AntigravityLoopbackCallback.start",
+        boom,
+    )
+    auth_service_module._CURRENT_LOGIN = None
+    started = await AntigravityAuthService(tmp_path).start_login(
+        client_id="id", client_secret="secret"
+    )
+    assert started["loopback"] is False
+    assert "tutor.example.com" in started["redirect_uri"]
+    assert "redirect_uri=" in started["authorize_url"]
+    auth_service_module._CURRENT_LOGIN = None
 
 
 def test_service_status(tmp_path: Path) -> None:

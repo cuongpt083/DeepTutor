@@ -4352,6 +4352,8 @@
   "Open authorization page": "Open authorization page",
   "Complete sign-in": "Complete sign-in",
   "Complete sign-in in the opened browser window. If redirecting to localhost does not work (e.g. remote server or Docker), paste the full redirected callback address below:": "Complete sign-in in the opened browser window. If redirecting to localhost does not work (e.g. remote server or Docker), paste the full redirected callback address below:",
+  "Firefox cannot connect to localhost:51121. That is expected on a remote host or HTTPS reverse proxy. Copy the full address bar URL (it starts with http://localhost:51121/oauth-callback?code=) and paste it below. Do not close that tab first.": "Firefox cannot connect to localhost:51121. That is expected on a remote host or HTTPS reverse proxy. Copy the full address bar URL (it starts with http://localhost:51121/oauth-callback?code=) and paste it below. Do not close that tab first.",
+  "After Google redirects, this page will finish sign-in automatically. If it does not, paste the callback URL below.": "After Google redirects, this page will finish sign-in automatically. If it does not, paste the callback URL below.",
   "Account": "Account",
   "Rename model": "Rename model",
   "Rename provider": "Rename provider",

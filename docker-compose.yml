@@ -121,6 +121,7 @@ services:
       - ANTIGRAVITY_CLIENT_ID=${ANTIGRAVITY_CLIENT_ID:-}
       - ANTIGRAVITY_CLIENT_SECRET=${ANTIGRAVITY_CLIENT_SECRET:-}
       - ANTIGRAVITY_AGY_PATH=${ANTIGRAVITY_AGY_PATH:-}
+      - ANTIGRAVITY_REDIRECT_URI=${ANTIGRAVITY_REDIRECT_URI:-}
 
       # Optional dependencies, re-applied on every start (#762). Installing
       # these with `docker exec` does not survive `compose down`, so declare

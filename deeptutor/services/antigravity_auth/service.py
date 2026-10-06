@@ -14,7 +14,8 @@ from urllib.parse import parse_qs, urlsplit
 from .catalog import ANTIGRAVITY_MODELS
 from .constants import (
     ANTIGRAVITY_LOGIN_TIMEOUT_SECONDS,
-    ANTIGRAVITY_REDIRECT_URI,
+    is_loopback_redirect_uri,
+    resolve_antigravity_redirect_uri,
 )
 from .contracts import (
     AntigravityAuthError,
@@ -48,6 +49,7 @@ class _ActiveLogin:
     client_id: str
     client_secret: str
     client_secret_candidates: tuple[str, ...]
+    redirect_uri: str
     deadline: float
     user_root: Path
 
@@ -85,7 +87,7 @@ class AntigravityAuthService:
         client_id: str,
         client_secret: str,
         client_secret_candidates: tuple[str, ...] = (),
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         global _CURRENT_LOGIN
 
         if not client_id or not client_secret:
@@ -103,16 +105,24 @@ class AntigravityAuthService:
             pkce = generate_pkce()
             state_secret = secrets.token_urlsafe(32)
             operation_id = secrets.token_urlsafe(16)
+            redirect_uri = resolve_antigravity_redirect_uri()
+            loopback = is_loopback_redirect_uri(redirect_uri)
 
             callback = None
-            try:
-                callback = await AntigravityLoopbackCallback.start(expected_state=state_secret)
-            except Exception as exc:
-                logger.warning("Could not bind port 51121 loopback: %s. Relying on paste-callback.", exc)
+            if loopback:
+                try:
+                    callback = await AntigravityLoopbackCallback.start(
+                        expected_state=state_secret
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Could not bind port 51121 loopback: %s. Relying on paste-callback.",
+                        exc,
+                    )
 
             auth_url = build_authorize_url(
                 client_id=client_id,
-                redirect_uri=ANTIGRAVITY_REDIRECT_URI,
+                redirect_uri=redirect_uri,
                 state=state_secret,
                 pkce=pkce,
             )
@@ -126,6 +136,7 @@ class AntigravityAuthService:
                 client_id=client_id,
                 client_secret=client_secret,
                 client_secret_candidates=tuple(client_secret_candidates),
+                redirect_uri=redirect_uri,
                 deadline=deadline,
                 user_root=self.user_root,
             )
@@ -136,7 +147,8 @@ class AntigravityAuthService:
             return {
                 "operation_id": operation_id,
                 "authorize_url": auth_url,
-                "redirect_uri": ANTIGRAVITY_REDIRECT_URI,
+                "redirect_uri": redirect_uri,
+                "loopback": loopback,
             }
 
     async def _wait_loopback_login(
@@ -208,7 +220,7 @@ class AntigravityAuthService:
             project_id=token.project_id,
             updated_at=time.time(),
         )
-        self.store.store_credentials(creds)
+        AntigravityCredentialStore(op.user_root).store_credentials(creds)
         return {
             "status": "success",
             "email": token.email,
@@ -230,7 +242,7 @@ class AntigravityAuthService:
             try:
                 token = await client.exchange_code(
                     code=code,
-                    redirect_uri=ANTIGRAVITY_REDIRECT_URI,
+                    redirect_uri=op.redirect_uri,
                     code_verifier=op.pkce.verifier,
                 )
             except Exception as exc:

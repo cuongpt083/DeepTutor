@@ -434,10 +434,20 @@ Set `ANTIGRAVITY_ENABLED=true` and pick one:
    `ANTIGRAVITY_AGY_PATH` to that file. Windows `agy.exe` will not work
    in a Linux container.
 
-On a remote host the Google redirect is
-`http://localhost:51121/oauth-callback`. If the browser cannot reach
-that loopback inside the container, paste the full redirected URL into
+The borrowed `agy` / Gemini CLI OAuth client can **only** redirect to
+`http://localhost:51121/oauth-callback`. An HTTPS reverse proxy in front
+of DeepTutor does not receive that request: Google sends the *browser*
+to localhost on the machine running Firefox. "Unable to connect" is
+expected. Copy the full address-bar URL (`?code=...`) and paste it into
 the OAuth card.
+
+To have Google redirect to your public URL instead, register your own
+Google Cloud OAuth client with this exact authorized redirect URI and
+set `ANTIGRAVITY_REDIRECT_URI` to the same value:
+
+```
+https://YOUR_DOMAIN/api/settings/providers/google-antigravity/oauth/callback
+```
 
 ---
 
