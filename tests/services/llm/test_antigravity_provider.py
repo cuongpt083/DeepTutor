@@ -152,3 +152,60 @@ async def test_antigravity_gemini3_thought_signature_roundtrip() -> None:
     assert "functionResponse" in fr
     assert fr["functionResponse"]["name"] == "search"
     assert fr["functionResponse"]["response"] == {"response": "result 1"}
+
+
+@pytest.mark.asyncio
+async def test_empty_token_does_not_open_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("HTTP client must not be constructed without a token")
+
+    monkeypatch.setattr("httpx.AsyncClient", _boom)
+    provider = AntigravityProvider(token_getter=lambda: "")
+    with pytest.raises(Exception, match="No valid Antigravity"):
+        await provider.chat_stream(messages=[{"role": "user", "content": "hi"}])
+
+
+def test_factory_refuses_missing_owner_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    constructed = {"provider": False}
+
+    class _Store:
+        def load_credentials(self):
+            return None
+
+    class _Auth:
+        def __init__(self, _root):
+            self.store = _Store()
+
+        async def get_valid_token(self):
+            raise AssertionError("token fetch")
+
+    class _Provider:
+        def __init__(self, *_args, **_kwargs):
+            constructed["provider"] = True
+
+    monkeypatch.setattr(
+        "deeptutor.services.antigravity_auth.service.AntigravityAuthService",
+        _Auth,
+    )
+    monkeypatch.setattr(
+        "deeptutor.services.llm.provider_core.antigravity_provider.AntigravityProvider",
+        _Provider,
+    )
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("http")),
+    )
+
+    from deeptutor.services.llm.config import LLMConfig
+    from deeptutor.services.llm.exceptions import LLMConfigError
+    from deeptutor.services.llm.provider_factory import _build_runtime_provider
+
+    config = LLMConfig(
+        model="google-antigravity/gemini-3-pro-low",
+        api_key="",
+        binding="google_antigravity",
+        provider_name="google_antigravity",
+    )
+    with pytest.raises(LLMConfigError):
+        _build_runtime_provider(config, configure_env=False)
+    assert constructed["provider"] is False

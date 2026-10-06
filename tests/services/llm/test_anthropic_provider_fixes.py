@@ -145,6 +145,143 @@ def test_cache_control_never_exceeds_four() -> None:
     for n_tools in (0, 1, 5, 12, 15, 25, 40):
         tools = [{"name": f"t{i}", "description": "d", "input_schema": {}} for i in range(n_tools)]
         assert _count_cache_control("system prompt", messages, tools) <= 4, n_tools
+        marked_system, marked_msgs, marked_tools = AnthropicProvider._apply_cache_control(
+            "system prompt", messages, tools, cache_ttl="1h"
+        )
+        assert _count_marked(marked_system, marked_msgs, marked_tools) <= 4, n_tools
+
+
+def _count_marked(system: Any, messages: list[dict[str, Any]], tools: list | None) -> int:
+    total = 0
+    if isinstance(system, list):
+        total += sum("cache_control" in block for block in system)
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            total += sum("cache_control" in block for block in content)
+    if tools:
+        total += sum("cache_control" in tool for tool in tools)
+    return total
+
+
+def _system_messages() -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": "stable prefix"},
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": "b"},
+        {"role": "user", "content": "c"},
+    ]
+
+
+def test_build_kwargs_emits_1h_only_for_direct_anthropic() -> None:
+    direct = AnthropicProvider(
+        api_key="test-key",
+        binding="anthropic",
+        provider_name="anthropic",
+        prompt_cache_ttl="1h",
+    )
+    system = direct._build_kwargs(
+        _system_messages(), None, "claude-sonnet-4-6", 128, 0.2, None, None
+    )["system"]
+    assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert "cache_control" not in system[1] if len(system) > 1 else True
+
+    short = AnthropicProvider(
+        api_key="test-key",
+        binding="anthropic",
+        provider_name="anthropic",
+        prompt_cache_ttl="",
+    )
+    short_system = short._build_kwargs(
+        _system_messages(), None, "claude-sonnet-4-6", 128, 0.2, None, None
+    )["system"]
+    assert short_system[0]["cache_control"] == {"type": "ephemeral"}
+    assert "ttl" not in short_system[0]["cache_control"]
+
+    custom = AnthropicProvider(
+        api_key="test-key",
+        binding="custom_anthropic",
+        provider_name="custom_anthropic",
+        prompt_cache_ttl="1h",
+    )
+    custom_system = custom._build_kwargs(
+        _system_messages(), None, "claude-sonnet-4-6", 128, 0.2, None, None
+    )["system"]
+    assert "ttl" not in custom_system[0]["cache_control"]
+
+
+def test_factory_sets_1h_only_for_direct_long_retention(monkeypatch: pytest.MonkeyPatch) -> None:
+    from deeptutor.services.llm.config import LLMConfig
+    from deeptutor.services.llm.provider_factory import _build_runtime_provider
+
+    monkeypatch.setattr(
+        "deeptutor.services.llm.prompt_cache.prompt_cache_retention_is_long",
+        lambda: True,
+    )
+    direct = _build_runtime_provider(
+        LLMConfig(
+            model="claude-sonnet-4-6",
+            api_key="test-key",
+            binding="anthropic",
+            provider_name="anthropic",
+        ),
+        configure_env=False,
+    )
+    assert direct._prompt_cache_ttl == "1h"
+
+    monkeypatch.setattr(
+        "deeptutor.services.llm.prompt_cache.prompt_cache_retention_is_long",
+        lambda: False,
+    )
+    short = _build_runtime_provider(
+        LLMConfig(
+            model="claude-sonnet-4-6",
+            api_key="test-key",
+            binding="anthropic",
+            provider_name="anthropic",
+        ),
+        configure_env=False,
+    )
+    assert short._prompt_cache_ttl is None
+
+    monkeypatch.setattr(
+        "deeptutor.services.llm.prompt_cache.prompt_cache_retention_is_long",
+        lambda: True,
+    )
+    custom = _build_runtime_provider(
+        LLMConfig(
+            model="claude-sonnet-4-6",
+            api_key="test-key",
+            binding="custom_anthropic",
+            provider_name="custom_anthropic",
+        ),
+        configure_env=False,
+    )
+    assert custom._prompt_cache_ttl is None
+
+
+def test_usage_summary_bills_1h_writes_at_2x(monkeypatch: pytest.MonkeyPatch) -> None:
+    from deeptutor.runtime.agentic.usage import UsageTracker
+    from deeptutor.services.llm.keepalive import KeepWarmConfig, set_config, stop_runner
+
+    monkeypatch.delenv("DEEPTUTOR_PROMPT_CACHE_RETENTION", raising=False)
+    set_config(KeepWarmConfig(enabled=True))
+    try:
+        tracker = UsageTracker(
+            model="claude-3-5-sonnet",
+            binding="anthropic",
+            provider_name="anthropic",
+        )
+        tracker.prompt_tokens = 1000
+        tracker.cache_creation_tokens = 1000
+        tracker.calls = 1
+        summary = tracker.summary()
+        assert summary is not None
+        # claude-3-5-sonnet input is $0.003 / 1K; 1h writes are 2.0x.
+        assert summary["total_cost_usd"] == pytest.approx(0.006)
+    finally:
+        set_config(KeepWarmConfig(enabled=False))
+        stop_runner()
 
 
 def _kwargs_with_effort(provider: AnthropicProvider, model: str, effort: str) -> dict[str, Any]:

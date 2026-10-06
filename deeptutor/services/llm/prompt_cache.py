@@ -72,6 +72,48 @@ def supports_ttl1h(binding: str | None = None, provider_name: str | None = None)
     return False
 
 
+def prompt_cache_retention_is_long() -> bool:
+    """True when 1-hour Anthropic cache writes are explicitly opted in.
+
+    Long retention is never the default: 1h writes bill at 2x. It follows an
+    explicit ``prompt_cache_retention=long`` setting (or env override) or an
+    enabled keep-warm config, which exists to hold a cache past five minutes.
+    """
+    import os
+
+    env = os.environ.get("DEEPTUTOR_PROMPT_CACHE_RETENTION", "").strip().lower()
+    if env in {"long", "1h"}:
+        return True
+    if env in {"short", "5m", "default"}:
+        return False
+    try:
+        from deeptutor.services.llm.keepalive import get_config
+
+        if get_config().enabled:
+            return True
+    except Exception:
+        pass
+    try:
+        from deeptutor.services.config.runtime_settings import load_system_settings
+
+        retention = str(load_system_settings().get("prompt_cache_retention") or "").strip().lower()
+        return retention == "long"
+    except Exception:
+        return False
+
+
+def active_prompt_cache_ttl(
+    binding: str | None = None,
+    provider_name: str | None = None,
+) -> str | None:
+    """``"1h"`` only for direct Anthropic with long retention; otherwise None."""
+    if not supports_ttl1h(binding, provider_name):
+        return None
+    if not prompt_cache_retention_is_long():
+        return None
+    return "1h"
+
+
 def resolve_cache_ttl_policy(
     model: str | None,
     binding: str | None = None,
@@ -381,6 +423,8 @@ __all__ = [
     "mark_openai_messages",
     "resolve_cache_ttl_policy",
     "session_cache_key",
+    "active_prompt_cache_ttl",
+    "prompt_cache_retention_is_long",
     "supports_ttl1h",
     "wants_cache_control",
     "wants_prompt_cache_key",

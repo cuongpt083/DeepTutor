@@ -24,7 +24,13 @@ class UsageTracker:
     ``total_cost_usd`` via the pricing table in ``deeptutor.logging.stats``.
     """
 
-    def __init__(self, *, model: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        binding: str | None = None,
+        provider_name: str | None = None,
+    ) -> None:
         self.prompt_tokens: int = 0
         self.completion_tokens: int = 0
         self.total_tokens: int = 0
@@ -32,6 +38,8 @@ class UsageTracker:
         self.cache_creation_tokens: int = 0
         self.calls: int = 0
         self.model: str | None = model
+        self.binding: str | None = binding
+        self.provider_name: str | None = provider_name
 
     def add_from_response(self, response_or_usage: Any) -> None:
         counts = token_counts(getattr(response_or_usage, "usage", None) or response_or_usage)
@@ -88,11 +96,15 @@ class UsageTracker:
         if self.model:
             # Local import keeps ``core.agentic`` import-light at module load.
             from deeptutor.logging.stats.llm_stats import get_pricing
-            from deeptutor.services.llm.prompt_cache import cache_price_multipliers
+            from deeptutor.services.llm.prompt_cache import (
+                active_prompt_cache_ttl,
+                cache_price_multipliers,
+            )
 
             pricing = get_pricing(self.model)
             input_price = pricing.get("input", 0.0)
-            read_mult, write_mult = cache_price_multipliers(self.model)
+            cache_ttl = active_prompt_cache_ttl(self.binding, self.provider_name)
+            read_mult, write_mult = cache_price_multipliers(self.model, ttl=cache_ttl)
             uncached = max(
                 0, self.prompt_tokens - self.cache_read_tokens - self.cache_creation_tokens
             )

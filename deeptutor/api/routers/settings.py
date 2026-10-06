@@ -501,6 +501,21 @@ def _require_settings_admin() -> None:
         )
 
 
+def _require_oauth_actor(provider_label: str) -> None:
+    """Refuse partners on owner-scoped OAuth lifecycle routes.
+
+    A partner is a synthetic user whose owner is a real account, so admitting
+    one would act on that person's login — including signing them out.
+    """
+    from deeptutor.services.partners.scope import is_partner_user_id
+
+    if is_partner_user_id(get_current_user().id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"A partner uses the {provider_label} login of the account that owns it.",
+        )
+
+
 def _require_codex_oauth_actor() -> None:
     """Gate the Codex OAuth lifecycle: personal, not administrative.
 
@@ -516,13 +531,12 @@ def _require_codex_oauth_actor() -> None:
     including signing them out. Partners inherit the owner's login at call
     time and need no lifecycle of their own.
     """
-    from deeptutor.services.partners.scope import is_partner_user_id
+    _require_oauth_actor("Codex")
 
-    if is_partner_user_id(get_current_user().id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="A partner uses the Codex login of the account that owns it.",
-        )
+
+def _require_antigravity_oauth_actor() -> None:
+    """Gate Antigravity OAuth the same way as Codex, with its own copy."""
+    _require_oauth_actor("Antigravity")
 
 
 def _codex_http_exception(error: CodexAuthError) -> HTTPException:
@@ -2199,25 +2213,32 @@ class AntigravityCallbackPayload(BaseModel):
     callback_url: str
 
 
-@router.post("/providers/google-antigravity/oauth/start")
-async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload | None = None) -> dict[str, Any]:
-    _require_codex_oauth_actor()
-    from deeptutor.multi_user.paths import get_owner_secrets_dir
-    from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+def _antigravity_oauth_client(payload: AntigravityLoginStartPayload | None) -> tuple[str, str]:
+    """Env credentials for any actor; payload secrets only for an admin."""
     import os
 
-    client_id = os.environ.get("ANTIGRAVITY_CLIENT_ID", "")
-    client_secret = os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "")
-    if not client_id or not client_secret:
-        # Fallback to payload only for testing/explicit admin setup
-        client_id = client_id or (payload.client_id if payload else "")
-        client_secret = client_secret or (payload.client_secret if payload else "")
-
+    client_id = os.environ.get("ANTIGRAVITY_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "").strip()
+    if (not client_id or not client_secret) and get_current_user().is_admin and payload is not None:
+        client_id = client_id or str(payload.client_id or "").strip()
+        client_secret = client_secret or str(payload.client_secret or "").strip()
     if not client_id or not client_secret:
         raise HTTPException(
             status_code=400,
-            detail="Google Antigravity OAuth requires ANTIGRAVITY_CLIENT_ID and ANTIGRAVITY_CLIENT_SECRET environment variables or admin configuration.",
+            detail=(
+                "Google Antigravity OAuth requires ANTIGRAVITY_CLIENT_ID and "
+                "ANTIGRAVITY_CLIENT_SECRET environment variables or admin configuration."
+            ),
         )
+    return client_id, client_secret
+
+
+@router.post("/providers/google-antigravity/oauth/start")
+async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload | None = None) -> dict[str, Any]:
+    _require_antigravity_oauth_actor()
+    client_id, client_secret = _antigravity_oauth_client(payload)
+    from deeptutor.multi_user.paths import get_owner_secrets_dir
+    from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
     service = AntigravityAuthService(get_owner_secrets_dir())
     try:
@@ -2231,7 +2252,7 @@ async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload |
 
 @router.get("/providers/google-antigravity/oauth/status")
 async def get_google_antigravity_oauth_status() -> dict[str, Any]:
-    _require_codex_oauth_actor()
+    _require_antigravity_oauth_actor()
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
@@ -2241,7 +2262,7 @@ async def get_google_antigravity_oauth_status() -> dict[str, Any]:
 
 @router.post("/providers/google-antigravity/oauth/complete")
 async def complete_google_antigravity_oauth(payload: AntigravityCallbackPayload) -> dict[str, Any]:
-    _require_codex_oauth_actor()
+    _require_antigravity_oauth_actor()
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 
@@ -2254,7 +2275,7 @@ async def complete_google_antigravity_oauth(payload: AntigravityCallbackPayload)
 
 @router.post("/providers/google-antigravity/oauth/disconnect")
 async def disconnect_google_antigravity_oauth() -> dict[str, Any]:
-    _require_codex_oauth_actor()
+    _require_antigravity_oauth_actor()
     from deeptutor.multi_user.paths import get_owner_secrets_dir
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
 

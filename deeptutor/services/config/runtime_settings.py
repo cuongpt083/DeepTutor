@@ -69,6 +69,15 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
     "kb_preseed_mode": "off",
     "laya_service_url": "http://deeptutor-laya:8000/v1/decide",
     "laya_threshold": 0.70,
+    # Prompt-cache retention. "long" opts direct Anthropic into 1h cache
+    # writes (2x). Default short so spend does not jump on every chat turn.
+    "prompt_cache_retention": "short",
+    # Session prompt-cache keep-warm. Off unless an operator enables it.
+    "keep_warm": {
+        "enabled": False,
+        "window_min": 30,
+        "max_pings": 4,
+    },
 }
 
 # Clamp bounds for the chat attachment knobs. The MB ceilings are deliberately
@@ -419,6 +428,16 @@ def _coerce_float(value: Any, default: float) -> float:
 def _coerce_clamped_float(value: Any, default: float, low: float, high: float) -> float:
     coerced = _coerce_float(value, default)
     return max(low, min(high, coerced))
+
+
+def _normalize_keep_warm(value: Any) -> dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    defaults = DEFAULT_SYSTEM_SETTINGS["keep_warm"]
+    return {
+        "enabled": _coerce_bool(raw.get("enabled"), False),
+        "window_min": _coerce_clamped_int(raw.get("window_min"), defaults["window_min"], 1, 24 * 60),
+        "max_pings": _coerce_clamped_int(raw.get("max_pings"), defaults["max_pings"], 0, 20),
+    }
 
 
 def _coerce_port(value: Any, default: int) -> int:
@@ -876,6 +895,13 @@ class RuntimeSettingsService:
             payload["laya_service_url"] = value
         if value := self._process_env_value("LAYA_THRESHOLD"):
             payload["laya_threshold"] = value
+        if value := self._process_env_value("DEEPTUTOR_PROMPT_CACHE_RETENTION"):
+            payload["prompt_cache_retention"] = value
+        if value := self._process_env_value("DEEPTUTOR_KEEP_WARM_ENABLED"):
+            warm = payload.get("keep_warm")
+            warm = dict(warm) if isinstance(warm, dict) else {}
+            warm["enabled"] = value
+            payload["keep_warm"] = warm
         return self._normalize_system(payload)
 
     def _apply_auth_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -1301,6 +1327,12 @@ class RuntimeSettingsService:
                 0.0,
                 1.0,
             ),
+            "prompt_cache_retention": (
+                "long"
+                if _string(settings.get("prompt_cache_retention")).lower() == "long"
+                else "short"
+            ),
+            "keep_warm": _normalize_keep_warm(settings.get("keep_warm")),
         }
 
     def _normalize_auth(self, settings: dict[str, Any]) -> dict[str, Any]:

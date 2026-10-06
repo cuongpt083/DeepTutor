@@ -90,6 +90,31 @@ def _local_store_bytes(url: str) -> bytes | None:
         return None
 
 
+def reference_data_uris(attachments: list[Any], *, limit: int = 3) -> list[str]:
+    """Turn image attachments into data URIs for image generation.
+
+    Inline base64 and local ``/files/attachments/...`` store paths are accepted.
+    External URLs are never fetched. Non-images and unresolvable items are
+    skipped. At most ``limit`` URIs are returned (imagegen allows 3).
+    """
+    uris: list[str] = []
+    cap = max(0, limit)
+    for att in attachments or []:
+        if len(uris) >= cap:
+            break
+        if getattr(att, "type", "") != "image":
+            continue
+        data = _image_bytes(att)
+        if not data:
+            continue
+        mime = (getattr(att, "mime_type", "") or "image/png").split(";", 1)[0].strip().lower()
+        if not mime.startswith("image/"):
+            mime = "image/png"
+        encoded = base64.b64encode(data).decode("ascii")
+        uris.append(f"data:{mime};base64,{encoded}")
+    return uris
+
+
 def _image_ext(att: Any) -> str:
     mime = (getattr(att, "mime_type", "") or "").lower()
     if mime in _EXT_BY_MIME:
@@ -98,4 +123,4 @@ def _image_ext(att: Any) -> str:
     return match.group(1) if match else ".png"
 
 
-__all__ = ["materialize_images"]
+__all__ = ["materialize_images", "reference_data_uris"]

@@ -250,7 +250,11 @@ class AgenticLoopPipeline:
         # Process-wide registry. Stays the base for the whole turn; the
         # per-turn scoped view lives on ``_tool_view`` (see ``tool_lookup``).
         self.registry: ToolLookup = get_tool_registry()
-        self._usage = UsageTracker(model=self.model)
+        self._usage = UsageTracker(
+            model=self.model,
+            binding=self.binding,
+            provider_name=getattr(self.llm_config, "provider_name", None),
+        )
         self._tool_view: ProviderToolView | None = None
         self._deferred_loader: DeferredToolLoader | None = None
         self._deferred_pool: list[Any] = []
@@ -1404,6 +1408,15 @@ class AgenticLoopPipeline:
         elif tool_name == "write_note":
             kwargs["conversation_history"] = list(context.conversation_history or [])
             kwargs["current_user_message"] = context.user_message or ""
+        elif tool_name == "imagegen":
+            # Server-resolved turn images. Do not replace refs the model
+            # already supplied (those are sanitized to data URIs in the tool).
+            if not kwargs.get("reference_images"):
+                from deeptutor.services.subagent.images import reference_data_uris
+
+                refs = reference_data_uris(context.attachments or [])
+                if refs:
+                    kwargs["reference_images"] = refs
         elif tool_name == "geogebra_analysis":
             first_image = next(
                 (

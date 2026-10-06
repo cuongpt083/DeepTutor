@@ -1068,11 +1068,14 @@ class AgentLoop:
                 if tool_choice and tool_choice in available_tools
                 else "auto"
             )
+        capability = str(self.context.active_capability or "chat").strip() or "chat"
         apply_to_completion_kwargs(
             kwargs,
             model=self.pipeline.model,
             binding=self.pipeline.binding,
             session_id=session_id,
+            capability=capability,
+            owner_scope=self.pipeline._current_owner_id(),
         )
         if self.pipeline.usage is not None:
             kwargs["stream_options"] = {"include_usage": True}

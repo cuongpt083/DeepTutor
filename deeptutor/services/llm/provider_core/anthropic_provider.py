@@ -15,7 +15,11 @@ from typing import Any
 
 import json_repair
 
-from deeptutor.services.llm.prompt_cache import mark_anthropic_payload
+from deeptutor.services.llm.prompt_cache import (
+    active_prompt_cache_ttl,
+    mark_anthropic_payload,
+    supports_ttl1h,
+)
 from deeptutor.services.llm.provider_core.base import LLMProvider, LLMResponse, ToolCallRequest
 from deeptutor.services.session.provider_response_state import (
     normalize_provider_response_state,
@@ -59,11 +63,19 @@ class AnthropicProvider(LLMProvider):
         default_model: str = "claude-sonnet-4-20250514",
         extra_headers: dict[str, str] | None = None,
         supports_prompt_caching: bool = True,
+        binding: str | None = None,
+        provider_name: str | None = None,
+        prompt_cache_ttl: str | None = None,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
         self.extra_headers = extra_headers or {}
         self._supports_prompt_caching = supports_prompt_caching
+        self._binding = binding
+        self._provider_name = provider_name
+        # None resolves from retention policy at request time. "1h" is only
+        # honored for direct Anthropic; anything else forces the 5-minute marker.
+        self._prompt_cache_ttl = prompt_cache_ttl
 
         from anthropic import AsyncAnthropic
 
@@ -332,17 +344,32 @@ class AnthropicProvider(LLMProvider):
     # Prompt caching
     # ------------------------------------------------------------------
 
+    def _resolved_cache_ttl(self) -> str | None:
+        """1h only for direct Anthropic when long retention is selected."""
+        if not self._supports_prompt_caching:
+            return None
+        if not supports_ttl1h(self._binding, self._provider_name):
+            return None
+        explicit = self._prompt_cache_ttl
+        if explicit == "1h":
+            return "1h"
+        if explicit not in (None, ""):
+            return None
+        return active_prompt_cache_ttl(self._binding, self._provider_name)
+
     @classmethod
     def _apply_cache_control(
         cls,
         system: str | list[dict[str, Any]],
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
+        cache_ttl: str | None = None,
     ) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]] | None]:
         # Anthropic rejects more than 4 cache_control breakpoints. Mark the
         # *first* system block (stable tutor prefix) so a trailing summary
         # or attachment block can change without busting the cache.
-        return mark_anthropic_payload(system, messages, tools)
+        # ``cache_ttl="1h"`` is opt-in; the default marker has no ttl key.
+        return mark_anthropic_payload(system, messages, tools, cache_ttl=cache_ttl)
 
     # ------------------------------------------------------------------
     # Build API kwargs
@@ -367,6 +394,7 @@ class AnthropicProvider(LLMProvider):
                 system,
                 anthropic_msgs,
                 anthropic_tools,
+                cache_ttl=self._resolved_cache_ttl(),
             )
 
         max_tokens = max(1, max_tokens)

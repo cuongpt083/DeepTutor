@@ -169,11 +169,18 @@ class AntigravityProvider(LLMProvider):
         else:
             token = self._token_getter
 
+        access = ""
+        project_id = DEFAULT_PROJECT_ID
         if isinstance(token, AntigravityToken):
-            return token.access_token, token.project_id or DEFAULT_PROJECT_ID
+            access = token.access_token or ""
+            project_id = token.project_id or DEFAULT_PROJECT_ID
         elif isinstance(token, str):
-            return token, DEFAULT_PROJECT_ID
-        raise AntigravityReauthRequiredError("No valid Antigravity authentication token available.")
+            access = token
+        if not str(access or "").strip():
+            raise AntigravityReauthRequiredError(
+                "No valid Antigravity authentication token available."
+            )
+        return str(access), project_id
 
     async def chat(
         self,

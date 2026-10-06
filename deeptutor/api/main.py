@@ -163,6 +163,13 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to initialize LLM client at startup: {e}")
 
     try:
+        from deeptutor.services.llm.keepalive import apply_settings_config
+
+        apply_settings_config()
+    except Exception as e:
+        logger.warning(f"Failed to load keep-warm config at startup: {e}")
+
+    try:
         from deeptutor.events.event_bus import get_event_bus
 
         event_bus = get_event_bus()
@@ -311,6 +318,12 @@ async def lifespan(app: FastAPI):
     # Execute on shutdown
     app.state.ready = False
     logger.info("Application shutdown")
+    try:
+        from deeptutor.services.llm.keepalive import stop_runner
+
+        stop_runner()
+    except Exception as e:
+        logger.warning(f"Failed to stop keep-warm runner: {e}")
 
     install_progress_ports(broadcast=None, emit_task_event=None)
 

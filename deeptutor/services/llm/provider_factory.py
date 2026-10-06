@@ -76,10 +76,20 @@ def _build_runtime_provider(
     elif backend == "antigravity":
         from deeptutor.multi_user.paths import get_owner_secrets_dir
         from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+        from deeptutor.services.llm.exceptions import LLMConfigError
         from deeptutor.services.llm.provider_core.antigravity_provider import AntigravityProvider
 
         owner_secrets = get_owner_secrets_dir()
         auth_service = AntigravityAuthService(owner_secrets)
+        stored = auth_service.store.load_credentials()
+        access = ""
+        if stored is not None:
+            access = str(getattr(getattr(stored, "token", None), "access_token", "") or "")
+        if not access.strip():
+            raise LLMConfigError(
+                "Google Antigravity is not signed in for this account.",
+                provider="google_antigravity",
+            )
         provider = AntigravityProvider(
             token_getter=auth_service.get_valid_token,
             default_model=llm_config.model,
@@ -116,12 +126,17 @@ def _build_runtime_provider(
     elif backend == "anthropic":
         from deeptutor.services.llm.provider_core.anthropic_provider import AnthropicProvider
 
+        from deeptutor.services.llm.prompt_cache import active_prompt_cache_ttl
+
         provider = AnthropicProvider(
             api_key=api_key or None,
             api_base=llm_config.effective_url or llm_config.base_url or None,
             default_model=llm_config.model,
             extra_headers=llm_config.extra_headers or None,
             supports_prompt_caching=bool(spec and spec.supports_prompt_caching),
+            binding=llm_config.binding,
+            provider_name=provider_name,
+            prompt_cache_ttl=active_prompt_cache_ttl(llm_config.binding, provider_name),
         )
     else:
         from deeptutor.services.llm.provider_core.openai_compat_provider import OpenAICompatProvider

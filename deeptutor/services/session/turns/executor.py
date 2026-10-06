@@ -228,6 +228,7 @@ class TurnExecutor:
                 mcp=list(payload.get("mcp") or []),
             )
         )
+        keep_warm_owner = ""
         try:
             from deeptutor.agents.notebook import NotebookAnalysisAgent
             from deeptutor.book.context import build_book_context
@@ -920,6 +921,14 @@ class TurnExecutor:
             )
 
             pending_done_event: StreamEvent | None = None
+            try:
+                from deeptutor.multi_user.paths import current_owner_id
+                from deeptutor.services.llm.keepalive import note_turn_started
+
+                keep_warm_owner = current_owner_id()
+                note_turn_started(keep_warm_owner, session_id)
+            except Exception:
+                keep_warm_owner = ""
             async for event in self.turn_engine.execute(context):
                 if event.type == StreamEventType.SESSION:
                     continue
@@ -1284,6 +1293,11 @@ class TurnExecutor:
                     retryable=resolved_retryable,
                 )
         finally:
+            if keep_warm_owner and session_id:
+                with contextlib.suppress(Exception):
+                    from deeptutor.services.llm.keepalive import note_turn_finished
+
+                    note_turn_finished(keep_warm_owner, session_id)
             resource_scope.close()
             if llm_scope_token is not None and reset_active_llm_selection is not None:
                 reset_active_llm_selection(llm_scope_token)

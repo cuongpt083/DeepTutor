@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any
 
@@ -21,6 +22,7 @@ PING_PROMPT = "[cache keep-alive] Automated cache-warming ping. Do not call any 
 TICK_INTERVAL_S = 15.0
 
 _captures: dict[tuple[str, str], KeepWarmCapture] = {}
+_in_flight: set[tuple[str, str]] = set()
 _runner_task: asyncio.Task[None] | None = None
 _config: KeepWarmConfig = KeepWarmConfig(enabled=False)
 
@@ -35,9 +37,28 @@ def set_config(config: KeepWarmConfig) -> None:
 
 
 def mark_in_flight(owner_scope: str, session_id: str, flag: bool) -> None:
+    """Track a live turn independently of the captured snapshot.
+
+    ``capture_chat_turn`` replaces the snapshot mid-turn; the in-flight set
+    survives that replacement so a ping cannot overlap the user's request.
+    """
     key = (owner_scope, session_id)
+    if flag:
+        _in_flight.add(key)
+    else:
+        _in_flight.discard(key)
     if key in _captures:
         _captures[key].in_flight = flag
+
+
+def note_turn_started(owner_scope: str, session_id: str) -> None:
+    if owner_scope and session_id:
+        mark_in_flight(owner_scope, session_id, True)
+
+
+def note_turn_finished(owner_scope: str, session_id: str) -> None:
+    if owner_scope and session_id:
+        mark_in_flight(owner_scope, session_id, False)
 
 
 def capture_chat_turn(
@@ -72,32 +93,84 @@ def capture_chat_turn(
         last_touch=now,
         pings=0,
         failures=0,
-        in_flight=False,
+        in_flight=key in _in_flight,
         pinging=False,
     )
     ensure_runner_started()
 
 
-async def _ping_capture(cap: KeepWarmCapture) -> None:
-    from deeptutor.services.llm.config import LLMConfig
-    from deeptutor.services.llm.provider_factory import get_runtime_provider
+def load_config_from_settings() -> KeepWarmConfig:
+    """Read keep-warm from runtime system settings. Default is disabled."""
+    enabled = False
+    window_min = 30
+    max_pings = 4
+    try:
+        from deeptutor.services.config.runtime_settings import load_system_settings
 
+        raw = load_system_settings().get("keep_warm") or {}
+        if isinstance(raw, dict):
+            enabled = bool(raw.get("enabled", False))
+            window_min = int(raw.get("window_min") or 30)
+            max_pings = int(raw.get("max_pings") or 4)
+    except Exception:
+        logger.debug("keep-warm settings unavailable", exc_info=True)
+    env = os.environ.get("DEEPTUTOR_KEEP_WARM_ENABLED", "").strip().lower()
+    if env in {"1", "true", "yes", "on"}:
+        enabled = True
+    elif env in {"0", "false", "no", "off"}:
+        enabled = False
+    return KeepWarmConfig(enabled=enabled, window_min=max(1, window_min), max_pings=max(0, max_pings))
+
+
+def apply_settings_config() -> None:
+    set_config(load_config_from_settings())
+
+
+async def _provider_for_ping(cap: KeepWarmCapture) -> Any:
+    """Build a ping provider bound to the capturing owner, never another account."""
+    binding = (cap.binding or "").strip().lower()
+    if binding in {"antigravity", "google_antigravity"} or "antigravity" in (cap.model or "").lower():
+        from deeptutor.multi_user.paths import owner_secrets_dir
+        from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+        from deeptutor.services.llm.provider_core.antigravity_provider import AntigravityProvider
+
+        service = AntigravityAuthService(owner_secrets_dir(cap.owner_scope))
+        token = await service.get_valid_token()
+        access = token if isinstance(token, str) else getattr(token, "access_token", "")
+        if not str(access or "").strip():
+            raise RuntimeError("antigravity keep-warm token unavailable")
+        return AntigravityProvider(token_getter=lambda: token, default_model=cap.model)
+
+    from deeptutor.services.llm.config import get_llm_config
+    from deeptutor.services.llm.provider_factory import build_isolated_provider
+
+    base = get_llm_config()
+    base_bind = (getattr(base, "binding", "") or "").strip().lower()
+    base_name = (getattr(base, "provider_name", "") or "").strip().lower()
+    if binding and binding not in {base_bind, base_name}:
+        raise RuntimeError(
+            "keep-warm ping skipped: credentials are not scoped to the capturing owner"
+        )
+    config = base.model_copy(
+        update={"model": cap.model or base.model, "max_tokens": 1, "temperature": 0.0}
+    )
+    return build_isolated_provider(config)
+
+
+async def _ping_capture(cap: KeepWarmCapture) -> None:
     cap.pinging = True
     now = time.time()
     try:
-        # Re-resolve provider for the owner dynamically
-        config = LLMConfig(
-            model=cap.model,
-            binding=cap.binding,
-            max_tokens=1,
-            temperature=0.0,
-        )
-        provider = get_runtime_provider(config)
-        
-        # Append minimal keep-alive turn
+        if cap.in_flight or (cap.owner_scope, cap.session_id) in _in_flight:
+            return
+        provider = await _provider_for_ping(cap)
+
+        # Append minimal keep-alive turn. Native Anthropic providers re-apply
+        # cache_control (including ttl=1h when long retention is on) in
+        # ``_build_kwargs``, so the ping refreshes the same breakpoint.
         ping_messages = list(cap.messages)
         ping_messages.append({"role": "user", "content": PING_PROMPT})
-        
+
         logger.debug("Firing keep-warm ping for session %s (model: %s)", cap.session_id, cap.model)
         await provider.chat(
             messages=ping_messages,
@@ -171,3 +244,4 @@ def stop_runner() -> None:
         _runner_task.cancel()
         _runner_task = None
     _captures.clear()
+    _in_flight.clear()

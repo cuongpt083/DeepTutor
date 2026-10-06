@@ -42,6 +42,28 @@ _EXT_BY_CONTENT_TYPE = {
 }
 
 
+def _data_uri_references(value: Any) -> list[str]:
+    """Keep only data-URI images, capped at the provider limit of 3.
+
+    HTTP(S) URLs and bare attachment ids are dropped here. Turn attachments
+    are resolved to data URIs before they reach this function.
+    """
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        return []
+    refs: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text.startswith("data:image/") and ";base64," in text:
+            refs.append(text)
+        if len(refs) >= 3:
+            break
+    return refs
+
+
 def _slug(prompt: str, fallback: str) -> str:
     """Short ascii filename stem from a prompt; ``fallback`` when none survives."""
     words = re.findall(r"[A-Za-z0-9]+", prompt.lower())
@@ -175,6 +197,16 @@ class ImagegenTool(BaseTool):
                     required=False,
                     default=1,
                 ),
+                ToolParameter(
+                    name="reference_images",
+                    type="array",
+                    description=(
+                        "Optional data-URI reference images (max 3). "
+                        "Attachment ids are resolved server-side; do not pass http URLs."
+                    ),
+                    required=False,
+                    items={"type": "string"},
+                ),
             ],
         )
 
@@ -186,6 +218,7 @@ class ImagegenTool(BaseTool):
             return ToolResult(content="imagegen requires a non-empty 'prompt'.", success=False)
         size = str(kwargs.get("size") or "").strip() or None
         aspect_ratio = str(kwargs.get("aspect_ratio") or "").strip() or None
+        reference_images = _data_uri_references(kwargs.get("reference_images"))
         try:
             count = int(kwargs.get("n") or 1)
         except (TypeError, ValueError):
@@ -193,7 +226,13 @@ class ImagegenTool(BaseTool):
         count = max(1, min(count, 4))
 
         try:
-            images = await generate_image(prompt, size=size, aspect_ratio=aspect_ratio, n=count)
+            images = await generate_image(
+                prompt,
+                size=size,
+                aspect_ratio=aspect_ratio,
+                reference_images=reference_images or None,
+                n=count,
+            )
         except ValueError as exc:  # not configured
             return ToolResult(content=str(exc), success=False)
         except GenerationProviderError as exc:
