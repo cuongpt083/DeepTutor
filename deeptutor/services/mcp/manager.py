@@ -90,11 +90,24 @@ def _connection_lost_result(server_name: str, exc: BaseException) -> str:
 _SECRET_REFERENCE_MARKER = "${secret:"
 
 
-# Transient transport errors worth exactly one retry (mirrors nanobot).
+try:
+    import anyio
+
+    _ANYIO_ERRORS: tuple[type[BaseException], ...] = (
+        anyio.ClosedResourceError,
+        anyio.EndOfStream,
+    )
+except ImportError:
+    _ANYIO_ERRORS = ()
+
+# Transient transport errors worth automatic reconnection and retry.
 _TRANSIENT_ERRORS = (
     BrokenPipeError,
     ConnectionResetError,
+    ConnectionError,
+    *_ANYIO_ERRORS,
 )
+
 
 
 def wrapped_tool_name(server: str, tool: str) -> str:
@@ -430,10 +443,29 @@ class MCPConnectionManager:
         timeout: int,
         on_progress: "ProgressCallback | None" = None,
     ) -> str:
-        """Invoke a tool on a connected server; one retry on transient errors."""
+        """Invoke a tool on a connected server; auto-connects or reconnects on transient/transport errors."""
         conn = self._connections.get((owner, server_name))
         if conn is None or conn.session is None or conn.status != "connected":
-            return f"(MCP server {server_name!r} is not connected)"
+            # Attempt to connect on-demand if server is configured or was in error
+            cfg = conn.config if conn is not None else None
+            if cfg is None and owner == SHARED_OWNER:
+                try:
+                    cfg = load_mcp_config().servers.get(server_name)
+                except Exception:
+                    cfg = None
+            if cfg is not None and cfg.enabled:
+                async with self._lock_for(owner):
+                    conn = self._connections.get((owner, server_name))
+                    if conn is None or conn.session is None or conn.status != "connected":
+                        if conn is not None:
+                            await self._disconnect(conn)
+                            self._connections.pop((owner, server_name), None)
+                        await self._connect(server_name, cfg, owner=owner)
+                        conn = self._connections.get((owner, server_name))
+            if conn is None or conn.session is None or conn.status != "connected":
+                err = f": {conn.error}" if conn and conn.error else ""
+                return f"(MCP server {server_name!r} is not connected{err})"
+
         try:
             return await self._call_watching_connection(
                 conn, tool_name, arguments, timeout, on_progress
@@ -441,23 +473,29 @@ class MCPConnectionManager:
         except ConnectionLost as exc:
             logger.warning("MCP tool %s/%s lost its connection: %s", server_name, tool_name, exc)
             return _connection_lost_result(server_name, exc)
-        except _TRANSIENT_ERRORS:
+        except _TRANSIENT_ERRORS as exc:
             logger.warning(
-                "MCP tool %s/%s hit a transient transport error; retrying once",
+                "MCP tool %s/%s hit transport error (%s); reconnecting and retrying once",
                 server_name,
                 tool_name,
+                exc,
             )
             try:
-                # Watched like the first attempt. A retry is if anything *more*
-                # likely to meet a dead transport, which is exactly the failure
-                # this reports as itself rather than as a timeout.
+                async with self._lock_for(owner):
+                    await self._disconnect(conn)
+                    self._connections.pop((owner, server_name), None)
+                    await self._connect(server_name, conn.config, owner=owner)
+                    fresh_conn = self._connections.get((owner, server_name))
+                if fresh_conn is None or fresh_conn.status != "connected":
+                    err_msg = fresh_conn.error if fresh_conn else "failed to re-establish connection"
+                    return f"(MCP server {server_name!r} reconnect failed: {err_msg})"
                 return await self._call_watching_connection(
-                    conn, tool_name, arguments, timeout, on_progress
+                    fresh_conn, tool_name, arguments, timeout, on_progress
                 )
-            except ConnectionLost as exc:
-                return _connection_lost_result(server_name, exc)
-            except Exception as exc:
-                return f"(MCP tool call failed after retry: {type(exc).__name__})"
+            except ConnectionLost as retry_exc:
+                return _connection_lost_result(server_name, retry_exc)
+            except Exception as retry_exc:
+                return f"(MCP tool call failed after retry: {type(retry_exc).__name__}: {retry_exc})"
         except asyncio.TimeoutError:
             return f"(MCP tool call timed out after {timeout}s)"
         except asyncio.CancelledError:
@@ -707,7 +745,7 @@ class MCPConnectionManager:
                 conn.adapters = adapters
                 if not ready.done():
                     ready.set_result(None)
-                await conn.shutdown.wait()
+                await self._wait_until_shutdown_or_closed(conn, write, read)
         except Exception as exc:
             if not ready.done():
                 ready.set_exception(exc)
@@ -724,6 +762,25 @@ class MCPConnectionManager:
                 self._mark_failed(conn, describe_connect_failure(exc))
         finally:
             conn.session = None
+
+    @staticmethod
+    async def _wait_until_shutdown_or_closed(
+        conn: _ServerConnection, write: Any, read: Any = None
+    ) -> None:
+        """Wait until conn.shutdown is set OR the underlying transport stream closes."""
+        shutdown_task = asyncio.create_task(conn.shutdown.wait())
+        try:
+            while not conn.shutdown.is_set():
+                if getattr(write, "_closed", False) or (
+                    read is not None and getattr(read, "_closed", False)
+                ):
+                    raise ConnectionLost("underlying transport stream was closed")
+                done, _ = await asyncio.wait({shutdown_task}, timeout=0.25)
+                if done:
+                    break
+        finally:
+            shutdown_task.cancel()
+
 
     @staticmethod
     def _materialize(cfg: MCPServerConfig, owner: str) -> MCPServerConfig:

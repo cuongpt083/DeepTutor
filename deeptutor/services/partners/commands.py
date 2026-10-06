@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import shlex
 from typing import Any, Callable
 
 from deeptutor.agents._shared.tool_composition import default_optional_tools
 from deeptutor.partners.bus.events import InboundMessage
 from deeptutor.services.partners.sessions import PartnerSessionStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,8 +45,32 @@ BUILTIN_PARTNER_COMMANDS: tuple[PartnerCommandSpec, ...] = (
 )
 
 
+def load_partner_command_extensions() -> list[Any]:
+    """Discover registered partner command extensions via entry point 'deeptutor.partner_commands'."""
+    from deeptutor.core.entry_points import load_entry_point_group
+    import inspect
+
+    def _coerce(ep_name: str, loaded: Any) -> Any:
+        if inspect.isclass(loaded):
+            try:
+                return loaded()
+            except Exception:
+                logger.warning("Failed to instantiate partner command plugin %r", ep_name, exc_info=True)
+                return None
+        return loaded
+
+    extensions = load_entry_point_group("deeptutor.partner_commands", _coerce, log=logger)
+    if not extensions:
+        try:
+            from deeptutor_crm_plugin.plugin import NutriTechCRMPlugin
+            return [NutriTechCRMPlugin()]
+        except ImportError:
+            pass
+    return extensions
+
+
 def partner_command_palette() -> list[dict[str, str]]:
-    return [
+    palette = [
         {
             "command": spec.command,
             "description": spec.description,
@@ -51,6 +78,21 @@ def partner_command_palette() -> list[dict[str, str]]:
         }
         for spec in BUILTIN_PARTNER_COMMANDS
     ]
+    for ext in load_partner_command_extensions():
+        get_commands = getattr(ext, "get_commands", None)
+        if callable(get_commands):
+            try:
+                for spec in get_commands():
+                    palette.append(
+                        {
+                            "command": spec.command,
+                            "description": spec.description,
+                            "arg_hint": getattr(spec, "arg_hint", ""),
+                        }
+                    )
+            except Exception:
+                logger.warning("Failed to get commands from extension %r", ext, exc_info=True)
+    return palette
 
 
 def build_partner_help_text() -> str:
@@ -59,6 +101,16 @@ def build_partner_help_text() -> str:
         command = f"{spec.command} {spec.arg_hint}".rstrip()
         lines.append(f"{command} - {spec.description}")
     lines.append("/clear - Alias for /new.")
+    for ext in load_partner_command_extensions():
+        get_commands = getattr(ext, "get_commands", None)
+        if callable(get_commands):
+            try:
+                for spec in get_commands():
+                    arg_hint = getattr(spec, "arg_hint", "")
+                    cmd_str = f"{spec.command} {arg_hint}".rstrip()
+                    lines.append(f"{cmd_str} - {spec.description}")
+            except Exception:
+                logger.warning("Failed to get commands for help from %r", ext, exc_info=True)
     return "\n".join(lines)
 
 
@@ -81,10 +133,10 @@ class PartnerCommandHandler:
         self.store = store
         self.save_config = save_config
 
-    def dispatch(self, msg: InboundMessage) -> PartnerCommandResult | None:
+    def dispatch(self, msg: InboundMessage) -> Any:
         raw = msg.content.strip()
         if not looks_like_partner_command(raw):
-            return None
+            return self._dispatch_conversational(msg)
         try:
             parts = shlex.split(raw)
         except ValueError as exc:
@@ -116,7 +168,81 @@ class PartnerCommandHandler:
             return self._tool(args)
         if command == "/link":
             return self._link(msg, args)
+
+        extensions = load_partner_command_extensions()
+        if extensions:
+            return self._dispatch_extension_command(command, args, msg, extensions)
+
         return PartnerCommandResult(f"Unknown command: {parts[0]}\n\n{build_partner_help_text()}")
+
+    async def _dispatch_extension_command(
+        self,
+        command: str,
+        args: list[str],
+        msg: InboundMessage,
+        extensions: list[Any],
+    ) -> PartnerCommandResult:
+        import inspect
+
+        for ext in extensions:
+            handler = getattr(ext, "handle_command", None)
+            if callable(handler):
+                try:
+                    try:
+                        res = handler(command, args, msg, context=self)
+                    except TypeError:
+                        res = handler(command, args, msg)
+                    if inspect.isawaitable(res):
+                        res = await res
+                    if res is not None:
+                        if isinstance(res, PartnerCommandResult):
+                            return res
+                        content = getattr(res, "content", str(res))
+                        return PartnerCommandResult(content=content)
+                except Exception:
+                    logger.warning(
+                        "Partner command extension %r failed on %s",
+                        ext,
+                        command,
+                        exc_info=True,
+                    )
+        return PartnerCommandResult(f"Unknown command: {command}\n\n{build_partner_help_text()}")
+
+    def _dispatch_conversational(self, msg: InboundMessage) -> Any:
+        extensions = load_partner_command_extensions()
+        if not extensions:
+            return None
+        return self._dispatch_extension_conversational(msg, extensions)
+
+    async def _dispatch_extension_conversational(
+        self,
+        msg: InboundMessage,
+        extensions: list[Any],
+    ) -> PartnerCommandResult | None:
+        import inspect
+
+        for ext in extensions:
+            handler = getattr(ext, "handle_conversational", None)
+            if callable(handler):
+                try:
+                    try:
+                        res = handler(msg, context=self)
+                    except TypeError:
+                        res = handler(msg)
+                    if inspect.isawaitable(res):
+                        res = await res
+                    if res is not None:
+                        if isinstance(res, PartnerCommandResult):
+                            return res
+                        content = getattr(res, "content", str(res))
+                        return PartnerCommandResult(content=content)
+                except Exception:
+                    logger.warning(
+                        "Partner command extension %r conversational handler failed",
+                        ext,
+                        exc_info=True,
+                    )
+        return None
 
     def _link(self, msg: InboundMessage, args: list[str]) -> PartnerCommandResult:
         """Claim a link code, so this chat account speaks as its owner from now on."""
@@ -308,6 +434,7 @@ __all__ = [
     "PartnerCommandResult",
     "PartnerCommandSpec",
     "build_partner_help_text",
+    "load_partner_command_extensions",
     "looks_like_partner_command",
     "partner_command_palette",
 ]
