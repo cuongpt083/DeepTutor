@@ -105,7 +105,7 @@ def reference_data_uris(attachments: list[Any], *, limit: int = 3) -> list[str]:
         if getattr(att, "type", "") != "image":
             continue
         data = _image_bytes(att)
-        if not data:
+        if not data or len(data) > 10 * 1024 * 1024:
             continue
         mime = (getattr(att, "mime_type", "") or "image/png").split(";", 1)[0].strip().lower()
         if not mime.startswith("image/"):

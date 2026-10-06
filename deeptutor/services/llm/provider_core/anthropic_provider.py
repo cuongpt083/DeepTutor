@@ -415,6 +415,19 @@ class AnthropicProvider(LLMProvider):
         if system:
             kwargs["system"] = system
 
+        cache_ttl = self._resolved_cache_ttl()
+        if cache_ttl == "1h":
+            # Direct Anthropic 1-hour cache beta header
+            extra = dict(self.extra_headers or {})
+            existing = extra.get("anthropic-beta", "")
+            if existing:
+                extra["anthropic-beta"] = f"{existing},extended-cache-ttl-2025-04-11"
+            else:
+                extra["anthropic-beta"] = "extended-cache-ttl-2025-04-11"
+            kwargs["extra_headers"] = extra
+        elif self.extra_headers:
+            kwargs["extra_headers"] = dict(self.extra_headers)
+
         if thinking_enabled and effort_based:
             # These families reject enabled+budget_tokens with a 400 —
             # adaptive is their only on-mode, so any real effort level maps
@@ -439,8 +452,6 @@ class AnthropicProvider(LLMProvider):
             if tc:
                 kwargs["tool_choice"] = tc
 
-        if self.extra_headers:
-            kwargs["extra_headers"] = self.extra_headers
 
         return kwargs
 

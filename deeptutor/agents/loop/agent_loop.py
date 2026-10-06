@@ -1068,7 +1068,7 @@ class AgentLoop:
                 if tool_choice and tool_choice in available_tools
                 else "auto"
             )
-        capability = str(self.context.active_capability or "chat").strip() or "chat"
+        capability = str(self.context.active_capability or "").strip()
         apply_to_completion_kwargs(
             kwargs,
             model=self.pipeline.model,

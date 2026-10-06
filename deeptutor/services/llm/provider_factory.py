@@ -74,6 +74,14 @@ def _build_runtime_provider(
 
         provider: LLMProvider = OpenAICodexProvider(default_model=llm_config.model)
     elif backend == "antigravity":
+        import os
+
+        env_val = os.environ.get("ANTIGRAVITY_ENABLED", "").strip().lower()
+        if env_val in {"0", "false", "no", "off"}:
+            raise LLMConfigError(
+                "Google Antigravity provider is currently disabled.",
+                provider="google_antigravity",
+            )
         from deeptutor.multi_user.paths import get_owner_secrets_dir
         from deeptutor.services.antigravity_auth.service import AntigravityAuthService
         from deeptutor.services.llm.exceptions import LLMConfigError

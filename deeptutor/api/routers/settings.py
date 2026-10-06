@@ -536,6 +536,15 @@ def _require_codex_oauth_actor() -> None:
 
 def _require_antigravity_oauth_actor() -> None:
     """Gate Antigravity OAuth the same way as Codex, with its own copy."""
+    import os
+
+    env_val = os.environ.get("ANTIGRAVITY_ENABLED", "").strip().lower()
+    enabled = env_val not in {"0", "false", "no", "off"}
+    if not enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Google Antigravity provider is currently disabled.",
+        )
     _require_oauth_actor("Antigravity")
 
 
