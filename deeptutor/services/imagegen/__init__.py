@@ -19,6 +19,8 @@ async def generate_image(
     *,
     catalog: dict[str, Any] | None = None,
     size: str | None = None,
+    aspect_ratio: str | None = None,
+    reference_images: list[str] | None = None,
     quality: str | None = None,
     style: str | None = None,
     n: int = 1,
@@ -36,6 +38,10 @@ async def generate_image(
     config = resolve_imagegen_runtime_config(catalog=catalog)
     if size:
         config.size = size
+    if aspect_ratio:
+        config.aspect_ratio = aspect_ratio
+    if reference_images:
+        config.reference_images = reference_images
     if quality:
         config.quality = quality
     if style:

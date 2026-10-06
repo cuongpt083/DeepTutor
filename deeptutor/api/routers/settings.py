@@ -2191,8 +2191,8 @@ async def get_usage_statistics(
 
 
 class AntigravityLoginStartPayload(BaseModel):
-    client_id: str
-    client_secret: str
+    client_id: str = ""
+    client_secret: str = ""
 
 
 class AntigravityCallbackPayload(BaseModel):
@@ -2205,8 +2205,18 @@ async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload |
     from deeptutor.services.antigravity_auth.service import AntigravityAuthService
     import os
 
-    client_id = (payload.client_id if payload else "") or os.environ.get("ANTIGRAVITY_CLIENT_ID", "")
-    client_secret = (payload.client_secret if payload else "") or os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "")
+    client_id = os.environ.get("ANTIGRAVITY_CLIENT_ID", "")
+    client_secret = os.environ.get("ANTIGRAVITY_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        # Fallback to payload only for testing/explicit admin setup
+        client_id = client_id or (payload.client_id if payload else "")
+        client_secret = client_secret or (payload.client_secret if payload else "")
+
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=400,
+            detail="Google Antigravity OAuth requires ANTIGRAVITY_CLIENT_ID and ANTIGRAVITY_CLIENT_SECRET environment variables or admin configuration.",
+        )
 
     service = AntigravityAuthService(get_owner_secrets_dir())
     try:

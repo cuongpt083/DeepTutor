@@ -31,11 +31,8 @@ def _provider_cache_key(config: LLMConfig, loop: asyncio.AbstractEventLoop) -> t
     backend = config.provider_name or config.binding or ""
     owner_scope = ""
     if "antigravity" in backend or "codex" in backend:
-        try:
-            from deeptutor.multi_user.paths import get_owner_secrets_dir
-            owner_scope = str(get_owner_secrets_dir())
-        except Exception:
-            owner_scope = ""
+        from deeptutor.multi_user.paths import get_owner_secrets_dir
+        owner_scope = str(get_owner_secrets_dir())
     return (
         loop,
         owner_scope,

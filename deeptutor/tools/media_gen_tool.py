@@ -163,6 +163,12 @@ class ImagegenTool(BaseTool):
                     required=False,
                 ),
                 ToolParameter(
+                    name="aspect_ratio",
+                    type="string",
+                    description="Optional aspect ratio like '1:1', '16:9', '9:16', '4:3', '3:4'.",
+                    required=False,
+                ),
+                ToolParameter(
                     name="n",
                     type="integer",
                     description="How many images to generate (1-4). Default 1.",
@@ -179,6 +185,7 @@ class ImagegenTool(BaseTool):
         if not prompt:
             return ToolResult(content="imagegen requires a non-empty 'prompt'.", success=False)
         size = str(kwargs.get("size") or "").strip() or None
+        aspect_ratio = str(kwargs.get("aspect_ratio") or "").strip() or None
         try:
             count = int(kwargs.get("n") or 1)
         except (TypeError, ValueError):
@@ -186,7 +193,7 @@ class ImagegenTool(BaseTool):
         count = max(1, min(count, 4))
 
         try:
-            images = await generate_image(prompt, size=size, n=count)
+            images = await generate_image(prompt, size=size, aspect_ratio=aspect_ratio, n=count)
         except ValueError as exc:  # not configured
             return ToolResult(content=str(exc), success=False)
         except GenerationProviderError as exc:
