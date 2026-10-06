@@ -2310,6 +2310,7 @@ async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload |
             client_id=resolved.client_id,
             client_secret=resolved.client_secret,
             client_secret_candidates=resolved.client_secret_candidates,
+            client_source=resolved.source,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

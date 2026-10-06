@@ -12,8 +12,10 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from .catalog import ANTIGRAVITY_MODELS
+from .client_credentials import rejects_custom_redirect_uri
 from .constants import (
     ANTIGRAVITY_LOGIN_TIMEOUT_SECONDS,
+    ANTIGRAVITY_REDIRECT_URI,
     is_loopback_redirect_uri,
     resolve_antigravity_redirect_uri,
 )
@@ -87,6 +89,7 @@ class AntigravityAuthService:
         client_id: str,
         client_secret: str,
         client_secret_candidates: tuple[str, ...] = (),
+        client_source: str = "",
     ) -> dict[str, Any]:
         global _CURRENT_LOGIN
 
@@ -107,6 +110,20 @@ class AntigravityAuthService:
             operation_id = secrets.token_urlsafe(16)
             redirect_uri = resolve_antigravity_redirect_uri()
             loopback = is_loopback_redirect_uri(redirect_uri)
+            if not loopback and rejects_custom_redirect_uri(
+                client_id, source=client_source
+            ):
+                raise AntigravityAuthError(
+                    "redirect_uri_mismatch",
+                    (
+                        "The borrowed agy/gemini-cli OAuth client only allows "
+                        f"{ANTIGRAVITY_REDIRECT_URI}. Unset ANTIGRAVITY_REDIRECT_URI "
+                        "and paste that localhost callback after Google sign-in, "
+                        "or use your own Google Cloud client registered with "
+                        f"{redirect_uri}."
+                    ),
+                    400,
+                )
 
             callback = None
             if loopback:

@@ -42,8 +42,11 @@ class _Service:
         client_id: str,
         client_secret: str,
         client_secret_candidates: tuple[str, ...] = (),
+        client_source: str = "",
     ) -> dict[str, Any]:
-        self.calls.append(("start", client_id, client_secret, client_secret_candidates))
+        self.calls.append(
+            ("start", client_id, client_secret, client_secret_candidates, client_source)
+        )
         return {"status": "started"}
 
     def get_status(self) -> dict[str, Any]:
@@ -159,7 +162,9 @@ def test_admin_payload_credentials_are_accepted(client, tmp_path, monkeypatch) -
     )
 
     assert response.status_code == 200
-    assert _Service.instances[-1].calls == [("start", "admin-id", "admin-secret", ())]
+    assert _Service.instances[-1].calls == [
+        ("start", "admin-id", "admin-secret", (), "admin_payload")
+    ]
 
 
 def test_start_uses_local_install_when_env_missing(client, monkeypatch) -> None:
@@ -176,7 +181,7 @@ def test_start_uses_local_install_when_env_missing(client, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert _Service.instances[-1].calls == [
-        ("start", "local-id", "local-secret", ("alt-secret",))
+        ("start", "local-id", "local-secret", ("alt-secret",), "local_install")
     ]
 
 

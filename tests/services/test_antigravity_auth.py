@@ -18,6 +18,7 @@ from deeptutor.services.antigravity_auth.oauth import (
     build_authorize_url,
 )
 from deeptutor.services.antigravity_auth import service as auth_service_module
+from deeptutor.services.antigravity_auth.client_credentials import SHARED_CLIENT_ID_PREFIX
 from deeptutor.services.antigravity_auth.constants import (
     ANTIGRAVITY_REDIRECT_URI,
     is_loopback_redirect_uri,
@@ -127,6 +128,44 @@ async def test_start_login_skips_loopback_for_public_redirect(
     assert started["loopback"] is False
     assert "tutor.example.com" in started["redirect_uri"]
     assert "redirect_uri=" in started["authorize_url"]
+    auth_service_module._CURRENT_LOGIN = None
+
+
+@pytest.mark.asyncio
+async def test_start_login_rejects_borrowed_client_with_public_redirect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(
+        "ANTIGRAVITY_REDIRECT_URI",
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
+    )
+    auth_service_module._CURRENT_LOGIN = None
+    with pytest.raises(AntigravityAuthError) as exc:
+        await AntigravityAuthService(tmp_path).start_login(
+            client_id=f"{SHARED_CLIENT_ID_PREFIX}abc.apps.googleusercontent.com",
+            client_secret="secret",
+        )
+    assert exc.value.code == "redirect_uri_mismatch"
+    assert "Unset ANTIGRAVITY_REDIRECT_URI" in exc.value.message
+    assert auth_service_module._CURRENT_LOGIN is None
+
+
+@pytest.mark.asyncio
+async def test_start_login_rejects_local_install_with_public_redirect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(
+        "ANTIGRAVITY_REDIRECT_URI",
+        "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
+    )
+    auth_service_module._CURRENT_LOGIN = None
+    with pytest.raises(AntigravityAuthError) as exc:
+        await AntigravityAuthService(tmp_path).start_login(
+            client_id="999999999999-custom.apps.googleusercontent.com",
+            client_secret="secret",
+            client_source="local_install",
+        )
+    assert exc.value.code == "redirect_uri_mismatch"
     auth_service_module._CURRENT_LOGIN = None
 
 

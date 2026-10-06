@@ -4354,6 +4354,7 @@
   "Complete sign-in in the opened browser window. If redirecting to localhost does not work (e.g. remote server or Docker), paste the full redirected callback address below:": "在打开的浏览器窗口中完成登录。如果重定向至 localhost 失败（例如远程服务器或 Docker 环境），请在下方粘贴完整重定向回调地址：",
   "Firefox cannot connect to localhost:51121. That is expected on a remote host or HTTPS reverse proxy. Copy the full address bar URL (it starts with http://localhost:51121/oauth-callback?code=) and paste it below. Do not close that tab first.": "Firefox 无法连接 localhost:51121 是预期行为（远程主机或 HTTPS 反向代理）。请复制地址栏完整 URL（以 http://localhost:51121/oauth-callback?code= 开头）并粘贴到下方，先不要关闭该标签页。",
   "After Google redirects, this page will finish sign-in automatically. If it does not, paste the callback URL below.": "Google 重定向后此页面会自动完成登录。若没有，请将回调 URL 粘贴到下方。",
+  "Redirect URI sent to Google:": "发送给 Google 的 Redirect URI：",
   "Account": "账号",
   "Rename model": "编辑模型名称",
   "Rename provider": "编辑提供方名称",

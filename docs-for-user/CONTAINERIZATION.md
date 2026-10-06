@@ -441,8 +441,11 @@ to localhost on the machine running Firefox. "Unable to connect" is
 expected. Copy the full address-bar URL (`?code=...`) and paste it into
 the OAuth card.
 
-To have Google redirect to your public URL instead, register your own
-Google Cloud OAuth client with this exact authorized redirect URI and
+Do **not** set `ANTIGRAVITY_REDIRECT_URI` while still using the borrowed
+`agy` / Gemini CLI client: Google will return `redirect_uri_mismatch`.
+To have Google redirect to your public URL instead, register **your own**
+Google Cloud OAuth client (id + secret in `ANTIGRAVITY_CLIENT_ID` /
+`ANTIGRAVITY_CLIENT_SECRET`) with this exact authorized redirect URI and
 set `ANTIGRAVITY_REDIRECT_URI` to the same value:
 
 ```

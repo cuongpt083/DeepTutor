@@ -263,6 +263,11 @@ export function AntigravityOAuthCard() {
                       "After Google redirects, this page will finish sign-in automatically. If it does not, paste the callback URL below.",
                     )}
               </p>
+              {loginStart.redirect_uri ? (
+                <p className="text-[11px] text-[var(--muted-foreground)] break-all">
+                  {t("Redirect URI sent to Google:")} {loginStart.redirect_uri}
+                </p>
+              ) : null}
               <div className="flex items-center gap-2">
                 <a
                   href={loginStart.authorize_url}

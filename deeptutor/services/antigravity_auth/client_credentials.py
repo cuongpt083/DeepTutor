@@ -30,6 +30,14 @@ AGY_PATH_ENV_VAR = "ANTIGRAVITY_AGY_PATH"
 #: one ``agy`` actually authenticates with) when several are found.
 SHARED_CLIENT_ID_PREFIX = "1071006060591-"
 
+
+def rejects_custom_redirect_uri(client_id: str, *, source: str = "") -> bool:
+    """Borrowed agy/gemini-cli clients only allow the fixed loopback redirect."""
+
+    if (source or "").strip() == "local_install":
+        return True
+    return (client_id or "").startswith(SHARED_CLIENT_ID_PREFIX)
+
 _CLIENT_ID_PATTERN = re.compile(rb"(\d{10,}-[a-z0-9]+\.apps\.googleusercontent\.com)")
 #: Google issues ``GOCSPX-`` secrets with a fixed 28-character body; matching the
 #: exact length keeps two adjacent secrets from being captured as one run.
