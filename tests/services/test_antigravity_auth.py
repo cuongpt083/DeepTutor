@@ -139,7 +139,19 @@ async def test_start_login_rejects_borrowed_client_with_public_redirect(
         "ANTIGRAVITY_REDIRECT_URI",
         "https://tutor.example.com/api/settings/providers/google-antigravity/oauth/callback",
     )
-    auth_service_module._CURRENT_LOGIN = None
+    pending = auth_service_module._ActiveLogin(
+        operation_id="op",
+        state_secret="state",
+        pkce=generate_pkce(),
+        callback=None,
+        client_id="id",
+        client_secret="secret",
+        client_secret_candidates=(),
+        redirect_uri=ANTIGRAVITY_REDIRECT_URI,
+        deadline=time.time() + 60,
+        user_root=tmp_path,
+    )
+    auth_service_module._CURRENT_LOGIN = pending
     with pytest.raises(AntigravityAuthError) as exc:
         await AntigravityAuthService(tmp_path).start_login(
             client_id=f"{SHARED_CLIENT_ID_PREFIX}abc.apps.googleusercontent.com",
@@ -147,7 +159,8 @@ async def test_start_login_rejects_borrowed_client_with_public_redirect(
         )
     assert exc.value.code == "redirect_uri_mismatch"
     assert "Unset ANTIGRAVITY_REDIRECT_URI" in exc.value.message
-    assert auth_service_module._CURRENT_LOGIN is None
+    assert auth_service_module._CURRENT_LOGIN is pending
+    auth_service_module._CURRENT_LOGIN = None
 
 
 @pytest.mark.asyncio

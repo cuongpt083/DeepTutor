@@ -100,6 +100,23 @@ class AntigravityAuthService:
                 400,
             )
 
+        redirect_uri = resolve_antigravity_redirect_uri()
+        loopback = is_loopback_redirect_uri(redirect_uri)
+        if not loopback and rejects_custom_redirect_uri(
+            client_id, source=client_source
+        ):
+            raise AntigravityAuthError(
+                "redirect_uri_mismatch",
+                (
+                    "The borrowed agy/gemini-cli OAuth client only allows "
+                    f"{ANTIGRAVITY_REDIRECT_URI}. Unset ANTIGRAVITY_REDIRECT_URI "
+                    "and paste that localhost callback after Google sign-in, "
+                    "or use your own Google Cloud client registered with "
+                    f"{redirect_uri}."
+                ),
+                400,
+            )
+
         async with _LOGIN_LOCK:
             if _CURRENT_LOGIN and time.time() < _CURRENT_LOGIN.deadline:
                 if _CURRENT_LOGIN.callback:
@@ -108,22 +125,6 @@ class AntigravityAuthService:
             pkce = generate_pkce()
             state_secret = secrets.token_urlsafe(32)
             operation_id = secrets.token_urlsafe(16)
-            redirect_uri = resolve_antigravity_redirect_uri()
-            loopback = is_loopback_redirect_uri(redirect_uri)
-            if not loopback and rejects_custom_redirect_uri(
-                client_id, source=client_source
-            ):
-                raise AntigravityAuthError(
-                    "redirect_uri_mismatch",
-                    (
-                        "The borrowed agy/gemini-cli OAuth client only allows "
-                        f"{ANTIGRAVITY_REDIRECT_URI}. Unset ANTIGRAVITY_REDIRECT_URI "
-                        "and paste that localhost callback after Google sign-in, "
-                        "or use your own Google Cloud client registered with "
-                        f"{redirect_uri}."
-                    ),
-                    400,
-                )
 
             callback = None
             if loopback:
