@@ -743,3 +743,52 @@ async def test_provider_stream_reports_signed_thinking_blocks() -> None:
 
     final = chunks[-1].choices[0]
     assert final.provider_specific_fields["thinking_blocks"] == blocks
+
+
+def test_antigravity_agentic_client_builds_adapter_not_async_openai(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    agentic_client.reset_agentic_client_pool()
+    monkeypatch.setenv("ANTIGRAVITY_ENABLED", "1")
+    from deeptutor.services.antigravity_auth.contracts import AntigravityCredentials, AntigravityToken
+    from deeptutor.services.antigravity_auth.storage import AntigravityCredentialStore
+    from deeptutor.services.llm.provider_core.antigravity_provider import AntigravityProvider
+
+    monkeypatch.setattr("deeptutor.multi_user.paths.get_owner_secrets_dir", lambda: tmp_path)
+    store = AntigravityCredentialStore(tmp_path)
+    token = AntigravityToken(
+        access_token="fake-access-token",
+        token_type="Bearer",
+        refresh_token="fake-refresh",
+        expires_in=3600,
+        expires_at=9999999999,
+        scopes=("openid",),
+        id_token="",
+        email="test@example.com",
+        project_id="test-project",
+    )
+    store.store_credentials(
+        AntigravityCredentials(
+            token=token,
+            client_id="fake-client-id",
+            client_secret="fake-secret",
+            project_id="test-project",
+            updated_at=1000.0,
+        )
+    )
+
+    try:
+        client = build_openai_client(
+            LLMClientConfig(
+                binding="google_antigravity",
+                model="google-antigravity/gemini-3-pro-low",
+                api_key="",
+                base_url="https://daily-cloudcode-pa.googleapis.com",
+            )
+        )
+
+        assert isinstance(client, _ProviderOpenAIAdapter)
+        assert isinstance(client._provider, AntigravityProvider)
+        assert can_use_native_tool_calling(binding="google_antigravity", model="gemini-3-pro-low")
+    finally:
+        agentic_client.reset_agentic_client_pool()

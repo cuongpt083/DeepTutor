@@ -60,7 +60,9 @@ _NATIVE_TOOL_BLOCKED_BINDINGS: frozenset[str] = frozenset(
 # backend needs an adapter branch, or tool schemas would be attached to a plain
 # AsyncOpenAI client pointed at a non-OpenAI wire format. github_copilot is
 # adapter-routed but deliberately excluded from this set.
-_NATIVE_TOOL_BACKENDS: frozenset[str] = frozenset({"anthropic", "openai_codex", "codebuddy"})
+_NATIVE_TOOL_BACKENDS: frozenset[str] = frozenset(
+    {"anthropic", "openai_codex", "codebuddy", "antigravity"}
+)
 _AGENTIC_CLIENT_POOL_MAXSIZE = 2
 _agentic_client_pool: "OrderedDict[tuple[Any, ...], Any]" = OrderedDict()
 _agentic_client_pool_lock = threading.RLock()
@@ -106,8 +108,15 @@ def _client_cache_key(
     serialized_key = json.dumps(config.api_key or "", ensure_ascii=False, separators=(",", ":"))
     secret = hashlib.sha256(serialized_key.encode("utf-8")).hexdigest()[:16]
     headers = json.dumps(config.extra_headers or {}, sort_keys=True, separators=(",", ":"))
+    owner_scope = ""
+    backend = config.binding or ""
+    if "antigravity" in backend or "codex" in backend:
+        from deeptutor.multi_user.paths import get_owner_secrets_dir
+
+        owner_scope = str(get_owner_secrets_dir())
     return (
         loop,
+        owner_scope,
         config.binding,
         config.model or "",
         secret,
@@ -342,6 +351,23 @@ def _build_codebuddy_adapter(config: LLMClientConfig, spec: Any) -> Any:
     return _ProviderOpenAIAdapter(codebuddy_provider)
 
 
+def _build_antigravity_adapter(config: LLMClientConfig, spec: Any) -> Any:
+    from deeptutor.services.llm.config import LLMConfig
+    from deeptutor.services.llm.provider_factory import build_isolated_provider
+
+    llm_config = LLMConfig(
+        model=config.model or "google-antigravity/gemini-3-pro-low",
+        api_key="",
+        binding=config.binding,
+        provider_name=config.binding,
+        base_url=config.base_url or (spec.default_api_base if spec else None),
+        reasoning_effort=config.reasoning_effort,
+        extra_headers=config.extra_headers,
+    )
+    provider = build_isolated_provider(llm_config)
+    return _ProviderOpenAIAdapter(provider)
+
+
 def _build_direct_openai_adapter(config: LLMClientConfig, spec: Any) -> Any:
     from deeptutor.services.llm.provider_core import OpenAICompatProvider
 
@@ -362,6 +388,7 @@ _NATIVE_ADAPTER_BUILDERS: dict[str, Callable[[LLMClientConfig, Any], Any]] = {
     "openai_codex": _build_codex_adapter,
     "github_copilot": _build_copilot_adapter,
     "codebuddy": _build_codebuddy_adapter,
+    "antigravity": _build_antigravity_adapter,
 }
 
 
