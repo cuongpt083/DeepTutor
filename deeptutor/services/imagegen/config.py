@@ -29,11 +29,13 @@ class ImagegenConfig:
     # Provider/model-specific generation knobs. Empty → omit from the request
     # and let the provider use its default.
     size: str = ""  # e.g. "1024x1024"
+    aspect_ratio: str = ""  # e.g. "1:1", "16:9", "9:16"
+    reference_images: list[str] = field(default_factory=list)  # max 3 data URIs or base64
     quality: str = ""  # e.g. "standard" | "hd"
     style: str = ""  # e.g. "natural" | "vivid"
     response_format: str = ""  # "" | "url" | "b64_json"
     # Image generation is slow; allow generous wall-clock per request.
-    request_timeout: int = 120
+    request_timeout: int = 300
     poll_interval: float = 2.0
     poll_timeout: int = 300
 

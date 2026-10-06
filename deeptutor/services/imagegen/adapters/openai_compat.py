@@ -27,6 +27,15 @@ from deeptutor.services.imagegen.config import ImagegenConfig
 logger = logging.getLogger(__name__)
 
 
+_ASPECT_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "16:9": "1792x1024",
+    "9:16": "1024x1792",
+    "4:3": "1024x768",
+    "3:4": "768x1024",
+}
+
+
 class OpenAICompatImagegenAdapter(BaseImagegenAdapter):
     """POST ``{base}/images/generations`` with a JSON body, returning image bytes."""
 
@@ -42,8 +51,14 @@ class OpenAICompatImagegenAdapter(BaseImagegenAdapter):
             **(config.extra_headers or {}),
         }
         payload: dict[str, Any] = {"model": config.model, "prompt": prompt, "n": max(1, n)}
-        if config.size:
-            payload["size"] = config.size
+        
+        # Resolve size from aspect_ratio or explicit size
+        size = config.size
+        if not size and config.aspect_ratio:
+            size = _ASPECT_RATIO_SIZES.get(config.aspect_ratio, "1024x1024")
+        if size:
+            payload["size"] = size
+
         if config.quality:
             payload["quality"] = config.quality
         if config.style:
@@ -51,12 +66,25 @@ class OpenAICompatImagegenAdapter(BaseImagegenAdapter):
         if config.response_format:
             payload["response_format"] = config.response_format
 
+        # Support reference images (agy2api / Custom image providers)
+        if config.reference_images:
+            if len(config.reference_images) > 3:
+                raise GenerationProviderError("At most 3 reference images are supported.")
+            payload["reference_images"] = config.reference_images
+
         logger.debug(
-            "imagegen url=%s model=%s n=%d size=%s", url, config.model, max(1, n), config.size
+            "imagegen url=%s model=%s n=%d size=%s refs=%d",
+            url,
+            config.model,
+            max(1, n),
+            payload.get("size"),
+            len(config.reference_images),
         )
         try:
             async with httpx.AsyncClient(timeout=config.request_timeout) as client:
                 resp = await client.post(url, headers=headers, json=payload)
+                if resp.status_code == 429:
+                    raise GenerationProviderError("Image generation service is busy or queued. Please retry.")
                 raise_for_provider(resp, "Image generation")
                 images = [
                     await self._materialize(client, item) for item in self._extract_items(resp)

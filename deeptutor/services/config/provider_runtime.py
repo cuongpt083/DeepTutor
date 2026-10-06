@@ -508,6 +508,11 @@ IMAGEGEN_PROVIDERS: dict[str, GenerationProviderSpec] = {
         default_api_base="",
         default_model="",
     ),
+    "agy2api": GenerationProviderSpec(
+        label="AGY CLI Proxy (agy2api)",
+        default_api_base="http://127.0.0.1:8000/v1",
+        default_model="qwen-image-2.1",
+    ),
     # Generic chat-completions image output (any OpenRouter-style gateway).
     "custom_chat": GenerationProviderSpec(
         label="Chat Completions (Custom)",
