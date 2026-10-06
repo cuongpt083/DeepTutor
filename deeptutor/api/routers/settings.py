@@ -2188,3 +2188,58 @@ async def get_usage_statistics(
 
     combined = await asyncio.to_thread(combined_usage_records, records, start, end)
     return await asyncio.to_thread(aggregate_usage, combined, year=year, timezone=timezone)
+
+
+class AntigravityLoginStartPayload(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+class AntigravityCallbackPayload(BaseModel):
+    callback_url: str
+
+
+@router.post("/providers/google-antigravity/oauth/start")
+async def start_google_antigravity_oauth(payload: AntigravityLoginStartPayload) -> dict[str, Any]:
+    from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+    from deeptutor.services.path_service import get_user_data_dir
+
+    service = AntigravityAuthService(get_user_data_dir())
+    try:
+        return await service.start_login(
+            client_id=payload.client_id,
+            client_secret=payload.client_secret,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/providers/google-antigravity/oauth/status")
+async def get_google_antigravity_oauth_status() -> dict[str, Any]:
+    from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+    from deeptutor.services.path_service import get_user_data_dir
+
+    service = AntigravityAuthService(get_user_data_dir())
+    return service.get_status()
+
+
+@router.post("/providers/google-antigravity/oauth/complete")
+async def complete_google_antigravity_oauth(payload: AntigravityCallbackPayload) -> dict[str, Any]:
+    from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+    from deeptutor.services.path_service import get_user_data_dir
+
+    service = AntigravityAuthService(get_user_data_dir())
+    try:
+        return await service.complete_login_url(payload.callback_url)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/providers/google-antigravity/oauth/disconnect")
+async def disconnect_google_antigravity_oauth() -> dict[str, Any]:
+    from deeptutor.services.antigravity_auth.service import AntigravityAuthService
+    from deeptutor.services.path_service import get_user_data_dir
+
+    service = AntigravityAuthService(get_user_data_dir())
+    service.disconnect()
+    return {"status": "disconnected"}
